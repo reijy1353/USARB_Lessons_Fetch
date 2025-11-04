@@ -1,5 +1,6 @@
-from datetime import datetime, date
-from typing import Dict, List, Optional
+from datetime import datetime, date, timedelta
+from typing import Dict, List, Optional, Tuple
+import hashlib
 from raw_schedule_data_fetch import get_raw_schedule_json
 
 
@@ -45,6 +46,56 @@ def _lesson_time_range(lesson_number: int) -> str:
     sh, sm = divmod(lesson_start, 60)
     eh, em = divmod(lesson_end, 60)
     return f"{sh:02d}:{sm:02d} - {eh:02d}:{em:02d}"
+
+
+# Calculate actual date from week number and day number (1=Monday, 7=Sunday)
+def calc_date_from_week_and_day(week: int, day_number: int) -> date:
+    """
+    Calculate the actual date for a given week and day of week.
+    day_number: 1=Monday, 2=Tuesday, ..., 7=Sunday
+    """
+    # Calculate days from WEEK_ZERO_START
+    # week 1 starts at WEEK_ZERO_START (Monday)
+    days_from_start = (week - 1) * 7 + (day_number - 1)
+    return WEEK_ZERO_START + timedelta(days=days_from_start)
+
+
+# Calculate lesson start and end datetime
+def calc_lesson_datetime(week: int, day_number: int, lesson_number: int) -> Tuple[datetime, datetime]:
+    """
+    Calculate the start and end datetime for a lesson.
+    Returns (start_datetime, end_datetime)
+    """
+    # Calculate the date
+    lesson_date = calc_date_from_week_and_day(week, day_number)
+    
+    # Calculate start time (08:00 + (lesson_number - 1) * 105 minutes)
+    start_minutes_total = 8 * 60 + (lesson_number - 1) * 105
+    start_hour, start_minute = divmod(start_minutes_total, 60)
+    
+    # End time is 90 minutes after start
+    end_minutes_total = start_minutes_total + 90
+    end_hour, end_minute = divmod(end_minutes_total, 60)
+    
+    start_dt = datetime.combine(lesson_date, datetime.min.time().replace(hour=start_hour, minute=start_minute))
+    end_dt = datetime.combine(lesson_date, datetime.min.time().replace(hour=end_hour, minute=end_minute))
+    
+    return start_dt, end_dt
+
+
+# Generate unique event ID for a lesson
+def generate_event_id(group_name: str, week: int, day_number: int, lesson_number: int, 
+                      cours_name: str = "", cours_type: str = "") -> str:
+    """
+    Generate a unique 32-character hex ID for a calendar event.
+    Uses a hash of the lesson's identifying information.
+    """
+    # Create a unique string from lesson identifiers
+    unique_string = f"{group_name}:{week}:{day_number}:{lesson_number}:{cours_name}:{cours_type}"
+    
+    # Generate SHA-256 hash and take first 32 characters (16 bytes = 32 hex chars)
+    hash_obj = hashlib.sha256(unique_string.encode('utf-8'))
+    return hash_obj.hexdigest()[:32]
 
 
 # Formatting schedule by specific criteria
