@@ -34,20 +34,9 @@ def get_schedule(your_group_name: str, semester: int = 1, university_week: int =
         "grName": f"{your_group_name}"
     }
     
-    # Get URL
-    url_lessons = f"{url_main}/api/getlessons"
-
-    # POST to get lessons
-    r_lessons = session.post(url_lessons, data=data)
-
-    # Debugging
-    if debug:
-        print("Status lessons:", r_lessons.status_code)
-        print("Response lessons:", r_lessons.json())
+    r_lessons = _get_lessons_json(data, debug=debug)
+    return r_lessons
     
-    # Return the lessons
-    return r_lessons.json()
-
 # Get the user's group ID by name
 def _get_groups_by_name(group_name: str, csrf: str, debug: bool = False):
     # Get URL
@@ -73,6 +62,22 @@ def _get_groups_by_name(group_name: str, csrf: str, debug: bool = False):
 
     # If the group is not found, return None
     return None
+
+# Get the user's lessons
+def _get_lessons_json(data: dict, debug: bool = False):
+    # Get URL
+    url_lessons = f"{url_main}/api/getlessons"
+
+    # POST to get lessons
+    r_lessons = session.post(url_lessons, data=data)
+
+    # Debugging
+    if debug:
+        print("Status lessons:", r_lessons.status_code)
+        print("Response lessons:", r_lessons.json())
+    
+    # Return the lessons
+    return r_lessons.json()
 
 if __name__ == "__main__":
     get_schedule("IT11Z", debug=True)
