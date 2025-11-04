@@ -33,6 +33,20 @@ def _weekday_name(day_number: int) -> str:
     return mapping.get(day_number, f"Day {day_number}")
 
 
+# Calculate lesson time window based on lesson number
+def _lesson_time_range(lesson_number: int) -> str:
+    # Start at 08:00
+    start_minutes_total = 8 * 60
+    # Each block is 90 min lesson + 15 min break between lessons => 105 min step
+    step = 105
+    # Compute start for this lesson (1-indexed)
+    lesson_start = start_minutes_total + (lesson_number - 1) * step
+    lesson_end = lesson_start + 90
+    sh, sm = divmod(lesson_start, 60)
+    eh, em = divmod(lesson_end, 60)
+    return f"{sh:02d}:{sm:02d} - {eh:02d}:{em:02d}"
+
+
 # Formatting schedule by specific criteria
 def format_schedule(grouped: Dict[int, List[dict]]) -> str:
     lines: List[str] = []
@@ -47,7 +61,11 @@ def format_schedule(grouped: Dict[int, List[dict]]) -> str:
             ctype = lesson.get("cours_type") or ""
             office = lesson.get("cours_office") or ""
             teacher = lesson.get("teacher_name") or ""
-            lines.append(f"Lesson {nr}: {name} {ctype} {office} {teacher}")
+            time_range = _lesson_time_range(nr) if isinstance(nr, int) else ""
+            if time_range:
+                lines.append(f"Lesson {nr} ({time_range}): {name} {ctype} {office} {teacher}")
+            else:
+                lines.append(f"Lesson {nr}: {name} {ctype} {office} {teacher}")
     return "\n".join(lines)
 
 
@@ -84,10 +102,16 @@ def parse_raw_schedule_json(
 # Local test
 if __name__ == "__main__":
     try:
-        user_date = input("Enter date (dd.mm.yyyy) or leave empty to use week=1: ").strip()
+        today_str = datetime.today().strftime("%d.%m.%Y")
+        prompt = (
+            f"Enter date (dd.mm.yyyy), type 'today' for {today_str}, or leave empty to use week=1: "
+        )
+        user_date = input(prompt).strip()
     except EOFError:
         user_date = ""
     if user_date:
+        if user_date.lower() == "today":
+            user_date = today_str
         print(parse_raw_schedule_json("IT11Z", date_str=user_date, debug=True))
     else:
         print(parse_raw_schedule_json("IT11Z", week=1, debug=True))
