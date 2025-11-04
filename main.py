@@ -17,7 +17,7 @@ def get_csrf():
     return csrf
 
 # Get the schedule
-def get_schedule(your_group_name: str, semester: int = 1, university_week: int = 1, debug: bool = False):
+def get_raw_schedule_json(your_group_name: str, semester: int = 1, university_week: int = 1, debug: bool = False):
     # Get CSRF token
     csrf = get_csrf()
 
@@ -34,7 +34,10 @@ def get_schedule(your_group_name: str, semester: int = 1, university_week: int =
         "grName": f"{your_group_name}"
     }
     
+    # Get lessons data
     r_lessons = _get_lessons_json(data, debug=debug)
+
+    # Return the raw json data
     return r_lessons
     
 # Get the user's group ID by name
@@ -79,5 +82,6 @@ def _get_lessons_json(data: dict, debug: bool = False):
     # Return the lessons
     return r_lessons.json()
 
+
 if __name__ == "__main__":
-    get_schedule("IT11Z", debug=True)
+    get_raw_schedule_json("IT11Z", debug=True)
