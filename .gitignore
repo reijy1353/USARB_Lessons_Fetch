@@ -7,3 +7,6 @@ __pycache__
 
 # macos
 .DS_Store
+
+# Environment variables
+.env
