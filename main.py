@@ -201,6 +201,8 @@ class CalendarSync:
                     return True
                 print(f"Error creating/updating event: {inner_e}")
                 return False
+        except Exception as e:
+            pass
     
     def sync_lessons(
         self,
