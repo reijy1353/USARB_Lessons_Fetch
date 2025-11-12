@@ -48,11 +48,18 @@ def get_schedule(group_name: str, *weeks: int, debug: bool = False):
         _type_: _description_
     """
 
+    # If a single argument is a list or tuple, unpack it
+    if len(weeks) == 1 and isinstance(weeks[0], (list, tuple)):
+        weeks = weeks[0]
+    
+    # Create a dict for saving schedule
     schedule = defaultdict[Any, defaultdict[Any, dict]](lambda: defaultdict[Any, dict](dict))
     
     for week in weeks:
+        # Get the raw schedule
         raw_schedule = get_raw_schedule_data(group_name, university_week=week)
 
+        # Create a dict that will save every lesson by thei day (1-7, monday-sunday)
         lessons_by_day = {
             1: [],
             2: [],
@@ -63,16 +70,22 @@ def get_schedule(group_name: str, *weeks: int, debug: bool = False):
             7: [],
         }
         
+        # Save lessons to lessons_by_day dict
         for i in raw_schedule["week"]:
             lessons_by_day[i["day_number"]].append(i)    
             
+        # DEBUG
         if debug:
             print(f"\n\nDEBUG lessons_by_day: {lessons_by_day}")
 
+        # Loop for saving lessons to schedule (here we're getting all the lessons for a day)
         for lessons in lessons_by_day.values():
+
+            # DEBUG
             if debug:
                 print(f"\n\nDEBUG lessons: {lessons}")
 
+            # Getting the lessons one by one from lessons
             for lesson in lessons:
                 lesson_day = lesson["day_number"]
                 lesson_nr = lesson["cours_nr"]
@@ -92,21 +105,33 @@ def get_schedule(group_name: str, *weeks: int, debug: bool = False):
                 schedule[week][lesson_hash]["office"] = office
                 schedule[week][lesson_hash]["teacher"] = teacher
                 
+                # DEBUG
                 if debug:
                     print(f"\n\nDEBUG schedule by lesson_hash: f{schedule[week][lesson_hash]}")
 
+    # DEBUG
     if debug:
         print(f"\n\nDEBUG schedule itself: {schedule}")
 
+    # Return the schedule
     return schedule
                     
 
 def save_schedule_to_json(group_name: str, *weeks: int, debug: bool = False):
+    """Saving the schedule retrieved from get_schedule() function to schedule_snapshot.json
+        (overwriting it it already exists)
+
+    Args:
+        group_name (str): your group name
+        debug (bool, optional): debug. Defaults to False.
+    """
+    
     schedule = get_schedule(group_name, *weeks)
 
     with open("schedule_snapshot.json", "w") as f:
         json.dump(schedule, f, indent=4)
         
 
+# Local testing
 if __name__ == "__main__":
-    save_schedule_to_json("IT11Z", *(10, 11, 12))
+    save_schedule_to_json("IT11Z", (10, 11, 12))
