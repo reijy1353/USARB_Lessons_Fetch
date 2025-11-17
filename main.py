@@ -153,8 +153,12 @@ class CalendarSchedule:
             password=self.password,
             url=self.caldav_url,
         ) as client:
-            my_principal = client.principal()
-            return my_principal
+            try:
+                my_principal = client.principal()
+            except Exception as e:
+                print(f"There's a problem making a connection: {e}")
+            finally:
+                return my_principal
     
     def get_or_create_calendar(self):
         """Get the calendar used for schedule, if none exists, it'll create a new one
@@ -208,6 +212,9 @@ if __name__ == "__main__":
     # app.get_calendar()
     # app.fetch_event()
     
-    my_calendar = app.get_or_create_calendar()
-    print(my_calendar)
+    # my_calendar = app.get_or_create_calendar()
+    # print(my_calendar)
+
+    my_principal = app.connect()
+    print(my_principal)
     
