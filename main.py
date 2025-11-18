@@ -147,7 +147,7 @@ class CalendarSchedule:
         
         return schedule_snapshot
         
-    def connect(self):
+    def connect(self) -> caldav.Principal:
         """Connecting to the calendar
         
         Returns:
@@ -164,10 +164,15 @@ class CalendarSchedule:
             except Exception as e:
                 print(f"There's a problem making a connection: {e}")
             finally:
+                # Debug
+                if self.debug:
+                    print(f"\n\nDEBUG: type {type(my_principal)}")
+                    print(f"\n\nDEBUG: my_principal: {my_principal}")
+                
                 # Returning client.principal() if everything's fine
                 return my_principal
     
-    def get_or_create_calendar(self):
+    def get_or_create_calendar(self) -> caldav.Calendar:
         """Get the calendar used for schedule, if none exists, it'll create a new one
         naming it by calendar_name from .env
 
@@ -185,6 +190,31 @@ class CalendarSchedule:
             print(f"But we'll create one just for you.")
             my_calendar = my_principal.make_calendar(name=self.calendar_name)
             
+        ## TEST: create/save an event
+
+        # Method 1: using .save_event() function
+        # november_18 = my_calendar.save_event(
+        #     dtstart=datetime(2025, 11, 18, 10),
+        #     dtend=datetime(2025, 11, 18, 11),
+        #     uid="november-18th",
+        #     summary="Here it is\nOr not?",
+        # )
+
+        # Method 2: using .save_even() fucntion with icalendar code
+        event_code = f"""   BEGIN:VCALENDAR
+                            VERSION:2.0
+                            PRODID:-//Example Corp.//CalDAV Client//EN
+                            BEGIN:VEVENT
+                            UID:20200516T060000Z-123401@example.com
+                            DTSTAMP:20200516T060000Z
+                            DTSTART:20200517T060000Z
+                            DTEND:20200517T230000Z
+                            RRULE:FREQ=YEARLY
+                            SUMMARY:Do the needful
+                            END:VEVENT
+                            END:VCALENDAR
+                            """
+            
         # Debug
         if self.debug:
             print(f"\n\nDEBUG: type {type(my_calendar)}")
@@ -193,7 +223,7 @@ class CalendarSchedule:
         return my_calendar
     
     # This function won't be used in the main process, but it's here for testing purposes
-    def fetch_events(self, my_calendar: caldav.collection.Calendar = None):
+    def fetch_events(self, my_calendar: caldav.Calendar | None = None) -> list[caldav.Event]:
         """Fetching the events from the calendar
         
         Returns:
@@ -230,9 +260,9 @@ if __name__ == "__main__":
     # app.get_or_create_calendar()
     # app.fetch_event()
     
-    # my_calendar = app.get_or_create_calendar()
-    # print(my_calendar)
+    my_calendar = app.get_or_create_calendar()
+    print(my_calendar)
 
-    my_principal = app.connect()
-    print(my_principal)
+    # my_principal = app.connect()
+    # print(my_principal)
     
