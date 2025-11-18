@@ -20,9 +20,11 @@ def get_lesson_hash(lesson_day: int, lesson_nr: int, lesson_name: str, lesson_ty
     Returns:
         _type_: hash
     """
+    # Get string for hash transform and transform it using MD5
     to_hash = f"{lesson_day}{lesson_nr}{lesson_name}{lesson_type}{office}{teacher}"
     hash = hashlib.md5(to_hash.encode()).hexdigest()[:32]
     
+    # Debug
     if debug:
         print(f"DEBUG: {hash}")
 
@@ -125,8 +127,10 @@ def save_schedule_to_json(group_name: str, *weeks: int, debug: bool = False):
         debug (bool, optional): debug. Defaults to False.
     """
     
+    # Get schedule
     schedule = get_schedule(group_name, *weeks)
 
+    # Open a default file ("schedule_snapshot.json") and write the schedule
     with open("schedule_snapshot.json", "w") as f:
         json.dump(schedule, f, indent=4)
         
