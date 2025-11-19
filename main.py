@@ -3,12 +3,13 @@ import json
 from re import S
 from typing import Any, Literal, overload
 from dotenv import load_dotenv
-from datetime import datetime, date, time, timedelta
+from datetime import datetime, date, time, timedelta, timezone
 import caldav
 from caldav.davclient import get_davclient
 from caldav.lib.error import NotFoundError
 
-from data_parser import save_schedule_to_json
+from data_parser import get_raw_schedule_data, get_lesson_id
+
 
 # Load .env
 load_dotenv()
@@ -27,14 +28,40 @@ FIRST_LESSON_TIME = time(8, 0)
 
 class CalendarSchedule:
     def __init__(self) -> None:
+        "Setting up the environmental variables"
         self.caldav_url = CALDAV_URL
         self.username = ICLOUD_USERNAME
         self.password = ICLOUD_PASSWORD
         self.calendar_name = CALENDAR_NAME
-        self.group = GROUP_NAME
+        self.group_name = GROUP_NAME
         self.debug: str = False
         
-    def get_lesson_time(self, lesson_nr: int):
+    def connect(self) -> caldav.Principal:
+        """Connecting to the calendar
+        
+        Returns:
+            my_principal: Your principal
+        """
+        with get_davclient(
+            username=self.username,
+            password=self.password,
+            url=self.caldav_url,
+        ) as client:
+            # Try/Except block for receiving my_principal from calDAV
+            try:
+                my_principal = client.principal()
+            except Exception as e:
+                print(f"There's a problem making a connection: {e}")
+            finally:
+                # Debug
+                if self.debug:
+                    print(f"\n\nDEBUG: type {type(my_principal)}")
+                    print(f"\n\nDEBUG: my_principal: {my_principal}")
+                
+                # Returning client.principal() if everything's fine
+                return my_principal
+            
+    def _get_lesson_time(self, lesson_nr: int):
         """Get lesson start and end time by lesson_nr"""
         # Coming a date with first lesson's start time
         dt = datetime.combine(datetime.today(), FIRST_LESSON_TIME)
@@ -50,7 +77,7 @@ class CalendarSchedule:
         
         return lesson_start_time.time(), lesson_end_time.time()
 
-    def get_this_week(self) -> int:
+    def _get_this_week(self) -> int:
         """Get lesson week from today"""
         # Get today's date
         today = datetime.today().date()
@@ -68,7 +95,7 @@ class CalendarSchedule:
         return week_number
 
     @overload
-    def get_date_from_this_week_on(
+    def _get_date_from_this_week_on(
         self,
         week: int | None = ...,
         postpone: int = ...,
@@ -76,14 +103,14 @@ class CalendarSchedule:
     ) -> tuple[date, date]: ...
 
     @overload
-    def get_date_from_this_week_on(
+    def _get_date_from_this_week_on(
         self,
         week: int | None = ...,
         postpone: int = ...,
         mode: Literal["weeks"] = ...,
     ) -> list[int]: ...
 
-    def get_date_from_this_week_on(self, week: int | None = None, postpone: int = 3, mode: str = "dates"):
+    def _get_date_from_this_week_on(self, week: int | None = None, postpone: int = 3, mode: str = "dates"):
         """Get a range of dates, from first day of the university week, to the 
         one calculated by formula week + postpone (e.g. week = 10, postone = 3)
         returns the range from start of week 10, till then end of week 10 + 3 = 13.
@@ -98,8 +125,8 @@ class CalendarSchedule:
         """
         # If no week is given, use "this" week by default
         if week is None:
-            week = self.get_this_week()
-            print(f"week var wasn't given, setting up this week by default (week = {week})")
+            week = self._get_this_week()
+            print(f"week wasn't given, setting up the week your in by default (week = {week})")
 
         # for mode = "weeks" return the range of weeks
         if mode == "weeks":
@@ -126,11 +153,12 @@ class CalendarSchedule:
         # Return (types vary by mode)
         if mode == "dates":
             return start_date, end_date
-
         else:
             raise ValueError("mode must be either 'dates' or 'weeks'")
             
 
+    # Feature in later update
+    # e.g. where we need to make a difference between two scheules
     def get_data_from_snapshot(self, snapshot_directory: str = "schedule_snapshot.json"):
         """Fetching the data from the last schedule snapshot"""
         # Open the json file and load the snapshot into a variable
@@ -146,31 +174,6 @@ class CalendarSchedule:
             print(f"\n\nDEBUG: data from json: {schedule_snapshot}")
         
         return schedule_snapshot
-        
-    def connect(self) -> caldav.Principal:
-        """Connecting to the calendar
-        
-        Returns:
-            my_principal: Your principal
-        """
-        with get_davclient(
-            username=self.username,
-            password=self.password,
-            url=self.caldav_url,
-        ) as client:
-            # Try/Except block for receiving my_principal from calDAV
-            try:
-                my_principal = client.principal()
-            except Exception as e:
-                print(f"There's a problem making a connection: {e}")
-            finally:
-                # Debug
-                if self.debug:
-                    print(f"\n\nDEBUG: type {type(my_principal)}")
-                    print(f"\n\nDEBUG: my_principal: {my_principal}")
-                
-                # Returning client.principal() if everything's fine
-                return my_principal
     
     def _escape_ical_value(self, value: str) -> str:
         """Escape special characters in iCal values."""
@@ -230,14 +233,35 @@ class CalendarSchedule:
             "BEGIN:VEVENT",
             f"UID:{hash_example}",
             f"DTSTART:20251118T060000Z",
-            f"DTEND:20251118T100000Z",
+            f"DTEND:20251118T080000Z",
             f"SUMMARY:Do the needfulness",
             f"DESCRIPTION:{description}",
             f"END:VEVENT",
             "BEGIN:VEVENT",
-            f"UID:19november",
-            f"DTSTART:20251119T060000Z",
-            f"DTEND:20251119T100000Z",
+            f"UID:{hash_example}1",
+            f"DTSTART:20251118T080000Z",
+            f"DTEND:20251118T100000Z",
+            f"SUMMARY:Do theă needfulness",
+            f"DESCRIPTION:{description}",
+            f"END:VEVENT",
+            "BEGIN:VEVENT",
+            f"UID:{hash_example}1111",
+            f"DTSTART:20251118T060000Z",
+            f"DTEND:20251118T080000Z",
+            f"SUMMARY:Do the needfulness",
+            f"DESCRIPTION:{description}",
+            f"END:VEVENT",
+            "BEGIN:VEVENT",
+            f"UID:{hash_example}111",
+            f"DTSTART:20251118T060000Z",
+            f"DTEND:20251118T080000Z",
+            f"SUMMARY:Do the needfulness",
+            f"DESCRIPTION:{description}",
+            f"END:VEVENT",
+            "BEGIN:VEVENT",
+            f"UID:{hash_example}11",
+            f"DTSTART:20251118T060000Z",
+            f"DTEND:20251118T080000Z",
             f"SUMMARY:Do the needfulness",
             f"DESCRIPTION:{description}",
             f"END:VEVENT",
@@ -252,13 +276,41 @@ class CalendarSchedule:
             object_id=f"raw-hash.ics"
         )
 
+        # ! BRAINSTORMING
+        # I need a function for saving event in which we'll be including the data parser
+        # and the save_event function itself
+        # save_even will have the part of saving in the real calendar
+        # and the part where we're putting all the ics code together
+        
+        
+
         # Debug
         if self.debug:
             print(f"\n\nDEBUG: type {type(my_calendar)}")
             print(f"DEBUG: calendar {my_calendar}")
     
         return my_calendar
-    
+
+    def parse_data_and_save_to_calendar(self, group_name: str = None, weeks: list[int] = None):
+        """Pasing the data from get_schedule(), adding it up to a ics data set and
+        add to the calendar itself.
+        """
+
+        # If no group_name provided, get it from .env
+        if group_name is None:
+            group_name = self.group_name
+
+        # If no weeks provided, get this week and the next 2
+        if weeks is None:
+            weeks = self._get_date_from_this_week_on(mode="weeks")
+            print(weeks)
+
+        for week in weeks:
+            my_schedule = get_raw_schedule_data(your_group_name=group_name, university_week=week)
+            print(f"\n\nweek{week} = {my_schedule}")
+
+
+        
     # This function won't be used in the main process, but it's here for testing purposes
     def fetch_events(self, my_calendar: caldav.Calendar | None = None) -> list[caldav.Event]:
         """Fetching the events from the calendar
@@ -271,7 +323,7 @@ class CalendarSchedule:
             my_calendar = self.get_or_create_calendar()
             
         # Get start and end date (for searching events)
-        start_date, end_date = self.get_date_from_this_week_on()
+        start_date, end_date = self._get_date_from_this_week_on()
 
         # Search for events
         my_events = my_calendar.search(
@@ -295,8 +347,8 @@ if __name__ == "__main__":
 
     # app.get_date_from_this_week_on(mode="dates")
     # app.get_or_create_calendar()
-    my_events = app.fetch_events()
-    print(my_events[0].data)
+    # my_events = app.fetch_events()
+    # print(my_events[0].data)
     
     # my_calendar = app.get_or_create_calendar()
     # print(my_calendar)
@@ -304,5 +356,6 @@ if __name__ == "__main__":
     # my_principal = app.connect()
     # print(my_principal)
     
-    # print(datetime.now().strftime("%d%m%y"))
+    # print(datetime.now(timezone.utc))
     
+    app.parse_data_and_save_to_calendar()

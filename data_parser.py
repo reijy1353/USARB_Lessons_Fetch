@@ -5,8 +5,8 @@ from typing import Any
 
 from raw_schedule_data_fetch import get_raw_schedule_data
 
-def get_lesson_hash(lesson_day: int, lesson_nr: int, lesson_name: str, lesson_type: str, office: int, teacher: str, debug: bool = False):
-    """Returning a 32 character hash created using MD5 and a string from the given args
+def get_lesson_id(lesson_day: int, lesson_nr: int, lesson_name: str, lesson_type: str, office: int, teacher: str, debug: bool = False):
+    f"""Returning a 32 character hash created using MD5 and a string from the given args
 
     Args:
         lesson_day (int): lesson day
@@ -18,7 +18,7 @@ def get_lesson_hash(lesson_day: int, lesson_nr: int, lesson_name: str, lesson_ty
         debug (bool, optional): debug. Defaults to False.
 
     Returns:
-        _type_: hash
+        string: [your_hash]@usarb-schedule.local
     """
     # Get string for hash transform and transform it using MD5
     to_hash = f"{lesson_day}{lesson_nr}{lesson_name}{lesson_type}{office}{teacher}"
@@ -31,7 +31,7 @@ def get_lesson_hash(lesson_day: int, lesson_nr: int, lesson_name: str, lesson_ty
     return f"{hash}@usarb-schedule.local"
 
     
-def get_schedule(group_name: str, *weeks: int, debug: bool = False):
+def get_schedule_for_snapshot(group_name: str, *weeks: int, debug: bool = False):
     """All the specifications/keywords we need:
         cours_nr -> lesson number (1 - 8)
         cours_name -> name of the course/class (e.g. Math)
@@ -46,7 +46,7 @@ def get_schedule(group_name: str, *weeks: int, debug: bool = False):
         debug (bool, optional): debug. Defaults to False.
 
     Returns:
-        _type_: _description_
+        schedule: Your class schedule
     """
 
     # If a single argument is a list or tuple, unpack it
@@ -128,7 +128,7 @@ def save_schedule_to_json(group_name: str, *weeks: int, debug: bool = False):
     """
     
     # Get schedule
-    schedule = get_schedule(group_name, *weeks)
+    schedule = get_schedule_for_snapshot(group_name, *weeks)
 
     # Open a default file ("schedule_snapshot.json") and write the schedule
     with open("schedule_snapshot.json", "w") as f:
