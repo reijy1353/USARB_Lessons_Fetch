@@ -1,119 +1,198 @@
-"""
-Main script to sync university schedule to iCloud Calendar using CalDAV.
-"""
 import os
-import sys
-import re
-from datetime import datetime, timedelta
-from typing import Dict, List, Optional
-import caldav
+import json
+from re import S
+from typing import Any, Literal, Tuple, overload
 from dotenv import load_dotenv
+from datetime import datetime, date, time, timedelta, timezone
+import caldav
+from caldav.davclient import get_davclient
+from caldav.lib.error import NotFoundError
 
-from data_parser import (
-    calc_lesson_datetime,
-    generate_event_id,
-    WEEK_ZERO_START,
-    calc_university_week_from_date,
-    calc_date_from_week_and_day,
-)
-from raw_schedule_data_fetch import get_raw_schedule_json
+from data_parser import get_raw_schedule_data, get_lesson_id
 
 
-# Load environment variables
+# Load .env
 load_dotenv()
 
+# Get the variables/contanst from the .env file
+CALDAV_URL=os.getenv("CALDAV_URL")
+ICLOUD_USERNAME=os.getenv("ICLOUD_USERNAME")
+ICLOUD_PASSWORD=os.getenv("ICLOUD_PASSWORD")
+CALENDAR_NAME=os.getenv("CALENDAR_NAME")
+GROUP_NAME=os.getenv("GROUP_NAME")
 
-class CalendarSync:
-    """Handle syncing lessons to iCloud Calendar via CalDAV."""
-    
-    def __init__(self, caldav_url: str, username: str, password: str, calendar_name: str = "USARB Schedule"):
-        """
-        Initialize CalDAV connection.
+# Other constants
+FIRST_DAY = date(2025, 9, 1)
+FIRST_LESSON_TIME = time(8, 0)
+
+
+class CalendarSchedule:
+    def __init__(self) -> None:
+        "Setting up the environmental variables"
+        self.caldav_url = CALDAV_URL
+        self.username = ICLOUD_USERNAME
+        self.password = ICLOUD_PASSWORD
+        self.calendar_name = CALENDAR_NAME
+        self.group_name = GROUP_NAME
+        self.debug: str = False
         
-        Args:
-            caldav_url: iCloud CalDAV URL (e.g., https://caldav.icloud.com/)
-            username: iCloud email address
-            password: iCloud app-specific password
-            calendar_name: Name of the calendar to sync to (will be created if doesn't exist)
-        """
-        self.caldav_url = caldav_url
-        self.username = username
-        self.password = password
-        self.calendar_name = calendar_name
-        self.client = None
-        self.calendar = None
+    def connect(self) -> caldav.Principal:
+        """Connecting to the calendar
         
-    def connect(self):
-        """Connect to CalDAV server and get/create calendar."""
-        try:
-            # Connect to CalDAV server
-            self.client = caldav.DAVClient(
-                url=self.caldav_url,
-                username=self.username,
-                password=self.password
-            )
-            
-            # Get principal (user's calendar collection)
-            principal = self.client.principal()
-            calendars = principal.calendars()
-            
-            # Find or create calendar
-            self.calendar = None
-            for cal in calendars:
-                if cal.name == self.calendar_name:
-                    self.calendar = cal
-                    break
-            
-            # Create calendar if it doesn't exist
-            if not self.calendar:
-                print(f"Creating calendar: {self.calendar_name}")
-                self.calendar = principal.make_calendar(name=self.calendar_name)
-            else:
-                print(f"Found existing calendar: {self.calendar_name}")
+        Returns:
+            my_principal: Your principal
+        """
+        with get_davclient(
+            username=self.username,
+            password=self.password,
+            url=self.caldav_url,
+        ) as client:
+            # Try/Except block for receiving my_principal from calDAV
+            try:
+                my_principal = client.principal()
+            except Exception as e:
+                print(f"There's a problem making a connection: {e}")
+            finally:
+                # Debug
+                if self.debug:
+                    print(f"\n\nDEBUG: type {type(my_principal)}")
+                    print(f"\n\nDEBUG: my_principal: {my_principal}")
                 
-            return True
-        except Exception as e:
-            print(f"Error connecting to CalDAV: {e}")
-            return False
-    
-    def get_existing_events(self, start_date: datetime, end_date: datetime) -> Dict[str, caldav.Event]:
-        """
-        Get existing events in the calendar within date range.
-        Returns dict mapping event_id to event object.
-        """
-        if not self.calendar:
-            return {}
+                # Returning client.principal() if everything's fine
+                return my_principal
+            
+    def _get_lesson_time(self, lesson_nr: int):
+        """Get lesson start and end time by lesson_nr"""
+        # Coming a date with first lesson's start time
+        dt = datetime.combine(datetime.today(), FIRST_LESSON_TIME)
+
+        # Get lesson_start_time
+        lesson_start_time = dt + (lesson_nr - 1) * timedelta(hours=1, minutes=45)
+
+        # Get lesson_end_time
+        lesson_end_time = lesson_start_time + timedelta(hours=1, minutes=30)
+            
+        if self.debug:
+            print(f"\n\nDEBUG: st = {lesson_start_time.time()}, et = {lesson_end_time.time()}")
         
-        try:
-            # Search for events in date range
-            events = self.calendar.search(start=start_date, end=end_date)
+        return lesson_start_time.time(), lesson_end_time.time()
+
+    def _get_this_week(self) -> int:
+        """Get lesson week from today"""
+        # Get today's date
+        today = datetime.today().date()
+
+        # Get the day difference
+        days_difference = (today - FIRST_DAY).days
+        
+        # Calculate week number
+        week_number = (days_difference // 7) + 1
+
+        # Debug
+        if self.debug:
+            print(f"DEBUG: week_number: {week_number}")
+
+        return week_number
+
+    @overload
+    def _get_date_from_this_week_on(
+        self,
+        week: int | None = ...,
+        postpone: int = ...,
+        mode: Literal["dates"] = ...,
+    ) -> tuple[date, date]: ...
+
+    @overload
+    def _get_date_from_this_week_on(
+        self,
+        week: int | None = ...,
+        postpone: int = ...,
+        mode: Literal["weeks"] = ...,
+    ) -> list[int]: ...
+
+    def _get_date_from_this_week_on(self, week: int | None = None, postpone: int = 3, mode: str = "dates"):
+        """Get a range of dates, from first day of the university week, to the 
+        one calculated by formula week + postpone (e.g. week = 10, postone = 3)
+        returns the range from start of week 10, till then end of week 10 + 3 = 13.
+
+        Args:
+            week (int): A week (1-the_end). Defaults to self.get_this_week()
+            postpone (int): How many weeks on you want to prolong your calendar. Defaults to 3.
+
+        Returns:
+            mode ("dates"): a range of dates from the first day of `week` to the last day of `week + postpone`, OR
+            mode ("weeks"): a range of week numbers (week, week + postpone)
+        """
+        # If no week is given, use "this" week by default
+        if week is None:
+            week = self._get_this_week()
+            print(f"week wasn't given, setting up the week your in by default (week = {week})")
+
+        # for mode = "weeks" return the range of weeks
+        if mode == "weeks":
+            # Debug
+            if self.debug:
+                print(f"\n\nDEBUG: mode \"weeks\" active returns {list[int](range(week, week + postpone))}")
             
-            # Extract event IDs from UID by parsing raw iCal data
-            existing_events = {}
-            for event in events:
-                try:
-                    # Get raw iCal data
-                    ical_data = event.data
-                    if isinstance(ical_data, bytes):
-                        ical_data = ical_data.decode('utf-8')
-                    
-                    # Extract UID using regex (handle both UID: and UID; formats)
-                    uid_match = re.search(r'UID(?::|;)([^\r\n]+)', ical_data, re.IGNORECASE)
-                    if uid_match:
-                        uid = uid_match.group(1).strip()
-                        # Extract event ID from UID (format: event_id@domain)
-                        if '@' in uid:
-                            event_id = uid.split('@')[0]
-                            existing_events[event_id] = event
-                except Exception as e:
-                    print(f"Warning: Could not parse event UID: {e}")
-                    continue
+            return list[int](range(week, week + postpone))
+
+        # Get the start_date
+        # formula: start_date = FIRST_DAY + 7 * week
+        start_date = FIRST_DAY + timedelta(days=7) * (week - 1)
+
+        # Get the end_date
+        # forumula: end_date = (start_date + 7 * postpone) - 1
+        end_date = (start_date + timedelta(days=7) * postpone) - timedelta(days=1)
+
+        # Debug
+        if self.debug:
+            print(f"\n\nDEBUG: mode \"dates\" active:")
+            print(f"DEBUG: start_date = {start_date}")
+            print(f"DEBUG: end_date = {end_date}")
+        
+        # Return (types vary by mode)
+        if mode == "dates":
+            return start_date, end_date
+        else:
+            raise ValueError("mode must be either 'dates' or 'weeks'")
             
-            return existing_events
-        except Exception as e:
-            print(f"Error fetching existing events: {e}")
-            return {}
-    
+    def _get_lesson_date_and_time(self, week: int = 1, day: int = 1, lesson_nr: int = 1) -> Tuple[datetime, datetime]:
+        """Return start and end date & time of a specific lesson
+
+        Args:
+            week (int, optional): the week (1-20). Defaults to 1.
+            lesson_nr (int, optional): the lesson nr (1-8). Defaults to 1.
+
+        Returns:
+            datetime: the date and the time of a specific lesson
+        """
+
+        # Get the date of the lesson using week and day
+        dt = (FIRST_DAY + timedelta(days=7) * (week - 1)) + timedelta(days=day-1)
+        
+        # Get the time of the lesson using _get_lesson_time method
+        lt_start, lt_end = self._get_lesson_time(lesson_nr=lesson_nr)
+        
+        # Combine date with lessons start and end time
+        dt_start = datetime.combine(dt, lt_start)
+        dt_end = datetime.combine(dt, lt_end)
+
+        # Convert to utc
+        dt_start = dt_start.astimezone(timezone.utc)
+        dt_end = dt_end.astimezone(timezone.utc)
+
+        return dt_start, dt_end
+
+    def _stringify_ics_datetime(self, dt: datetime | None = None) -> str:
+        "Return a proper ics datetime string"
+        return dt.strftime("%Y%m%dT%H%M%SZ")
+
+    def _convert_to_ics_datetime(self, dt_start: datetime = None, dt_end: datetime = None) -> Tuple[str, str]:
+        "Returns dt start and end formated by .ics data requirements"
+        dt_start = self._stringify_ics_datetime(dt_start)
+        dt_end = self._stringify_ics_datetime(dt_end)
+        return dt_start, dt_end
+
     def _escape_ical_value(self, value: str) -> str:
         """Escape special characters in iCal values."""
         # Replace newlines with \n
@@ -126,283 +205,205 @@ class CalendarSync:
         value = value.replace('\n', '\\n')
         return value
     
-    def create_or_update_event(
-        self,
-        event_id: str,
-        title: str,
-        start_dt: datetime,
-        end_dt: datetime,
-        description: str = "",
-        location: str = "",
-    ):
-        """
-        Create or update a calendar event.
-        Uses event_id as the UID for deduplication.
-        """
-        if not self.calendar:
-            print("Error: Calendar not connected")
-            return False
-        
+    # Feature in later update
+    # e.g. where we need to make a difference between two scheules
+    def get_data_from_snapshot(self, snapshot_directory: str = "schedule_snapshot.json"):
+        """Fetching the data from the last schedule snapshot"""
+        # Open the json file and load the snapshot into a variable
         try:
-            # Escape values for iCal format
-            safe_title = self._escape_ical_value(title)
-            safe_description = self._escape_ical_value(description)
-            safe_location = self._escape_ical_value(location)
-            
-            # Create UID (must be unique)
-            uid = f"{event_id}@usarb-schedule.local"
-            
-            # Format datetime for iCal (local time, no timezone)
-            dtstart = start_dt.strftime('%Y%m%dT%H%M%S')
-            dtend = end_dt.strftime('%Y%m%dT%H%M%S')
-            
-            # Create iCal content with proper formatting
-            # Each line should be max 75 characters (folded if longer)
-            ical_lines = [
-                "BEGIN:VCALENDAR",
-                "VERSION:2.0",
-                "PRODID:-//USARB Schedule//EN",
-                "BEGIN:VEVENT",
-                f"UID:{uid}",
-                f"DTSTART:{dtstart}",
-                f"DTEND:{dtend}",
-                f"SUMMARY:{safe_title}",
-            ]
-            
-            # Add description if present
-            if safe_description:
-                # iCal format: DESCRIPTION:value (can be folded if >75 chars)
-                # For now, just add it - caldav will handle folding if needed
-                ical_lines.append(f"DESCRIPTION:{safe_description}")
-            
-            # Add location if present
-            if safe_location:
-                ical_lines.append(f"LOCATION:{safe_location}")
-            
-            ical_lines.extend([
-                "END:VEVENT",
-                "END:VCALENDAR",
-                ""  # Final newline
-            ])
-            
-            # Join with CRLF (iCal standard)
-            ical_content = "\r\n".join(ical_lines)
-            
-            # Save event using caldav
-            try:
-                self.calendar.save_event(
-                    ical_content.encode('utf-8'),
-                    object_id=f"{event_id}.ics"
-                )
-                return True
-            except Exception as inner_e:
-                # Treat 412 Precondition Failed as 'already exists' and continue
-                if "412 Precondition Failed" in str(inner_e):
-                    return True
-                print(f"Error creating/updating event: {inner_e}")
-                return False
-        except Exception as e:
-            pass
+            with open(snapshot_directory, "r") as fp:
+                schedule_snapshot = json.load(fp)
+        except FileNotFoundError:
+            print(f"The file \"{snapshot_directory}\" doesn't exist.")
+            return None
+
+        # Debug
+        if self.debug:
+            print(f"\n\nDEBUG: data from json: {schedule_snapshot}")
+        
+        return schedule_snapshot
     
-    def sync_lessons(
-        self,
-        group_name: str,
-        weeks: Optional[List[int]] = None,
-        start_week: Optional[int] = None,
-        end_week: Optional[int] = None,
-        overwrite: bool = True,
-        debug: bool = False,
-    ):
+    def get_or_create_calendar(self) -> caldav.Calendar:
+        """Get the calendar used for schedule, if none exists, it'll create a new one
+        naming it by calendar_name from .env
+
+        Returns:
+            my_calendar: Your calendar
         """
-        Sync lessons to calendar for specified weeks.
-        
-        Args:
-            group_name: Group name (e.g., "IT11Z")
-            weeks: List of specific weeks to sync (if None, uses start_week/end_week)
-            start_week: First week to sync (inclusive)
-            end_week: Last week to sync (inclusive)
-            overwrite: If True, update existing events; if False, skip existing events
-            debug: Enable debug output
+        # Get my_principal (connect)
+        my_principal = self.connect()
+
+        # Try to fetch schedule targeted calendar
+        try:
+            my_calendar = my_principal.calendar(name=self.calendar_name)
+        except NotFoundError:
+            print(f"You don't seem to have a calendar named {self.calendar_name}")
+            print(f"But we'll create one just for you.")
+            my_calendar = my_principal.make_calendar(name=self.calendar_name)
+            
+        # Debug
+        if self.debug:
+            print(f"\n\nDEBUG: type {type(my_calendar)}")
+            print(f"DEBUG: calendar {my_calendar}")
+    
+        return my_calendar
+
+    def parse_schedule_data(self, group_name: str = None, weeks: list[int] = None):
+        """Pasing the data from get_schedule(), adding it up to a ics data set and
+        add to the calendar itself.
         """
-        if not self.calendar:
-            if not self.connect():
-                print("Failed to connect to calendar")
-                return False
         
-        # Determine which weeks to sync
+        # If no group_name provided, get it from .env
+        if group_name is None:
+            group_name = self.group_name
+
+        # If no weeks provided, get this week and the next 2
         if weeks is None:
-            if start_week is None or end_week is None:
-                # Default: sync current week and next 4 weeks
-                today = datetime.today().date()
-                current_week = calc_university_week_from_date(today)
-                weeks = list(range(current_week, min(current_week + 5, 20)))  # Max 20 weeks
-            else:
-                weeks = list(range(start_week, end_week + 1))
+            weeks = self._get_date_from_this_week_on(postpone=3, mode="weeks",)
+
+            # Debug
+            if self.debug:
+                print(f"\n\nDEBUG: The weeks by default are: {weeks}")
+
+        # If we get just one week and it's int transform it into an itreable object
+        if isinstance(weeks, int):
+            weeks = [weeks]
         
-        if debug:
-            print(f"Syncing weeks: {weeks}")
+        # Define .ics code for the schedule calendar
+        event_lines = [
+            "BEGIN:VCALENDAR",
+            "VERSION:2.0",
+            "PROID:-//USARB Schedule//EN",
+        ]
         
-        # Calculate date range for fetching existing events
-        start_date = calc_date_from_week_and_day(min(weeks), 1)
-        end_date = calc_date_from_week_and_day(max(weeks), 7) + timedelta(days=1)
-        start_dt = datetime.combine(start_date, datetime.min.time())
-        end_dt = datetime.combine(end_date, datetime.min.time())
+        # The end lines for ics content
+        event_lines_end = [
+            f"END:VCALENDAR",
+            "", 
+        ]
         
-        # Get existing events
-        existing_events = self.get_existing_events(start_dt, end_dt) if overwrite else {}
-        
-        # Process each week
-        total_events = 0
-        created = 0
-        updated = 0
-        skipped = 0
-        
+        # Loop for parsing my_schedule week by week
         for week in weeks:
-            if debug:
-                print(f"\nProcessing week {week}...")
+            my_schedule = get_raw_schedule_data(your_group_name=group_name, university_week=week)
             
-            try:
-                # Fetch schedule data
-                raw_data = get_raw_schedule_json(group_name, university_week=week, debug=debug)
-                entries = raw_data.get("week") or []
+            # Loop for parsing every leeson from a university week
+            for lesson in my_schedule["week"]:
+                # Get the data needed from my_schedule dict
+                lesson_nr = lesson["cours_nr"]
+                lesson_name = lesson["cours_name"]
+                lesson_type = lesson["cours_type"]
+                lesson_day = lesson["day_number"]
+                office = lesson["cours_office"]
+                teacher = lesson["teacher_name"]
+
+                # Get lesson's hash (UID)
+                lesson_id = get_lesson_id(lesson_day, lesson_nr, lesson_name, lesson_type,
+                                          office, teacher)
                 
-                for lesson in entries:
-                    day_number = lesson.get("day_number", 0)
-                    lesson_number = lesson.get("cours_nr", 0)
-                    cours_name = lesson.get("cours_name", "")
-                    cours_type = lesson.get("cours_type", "")
-                    cours_office = lesson.get("cours_office", "")
-                    teacher = lesson.get("teacher_name", "")
-                    
-                    if day_number == 0 or lesson_number == 0:
-                        continue
-                    
-                    # Generate event ID
-                    event_id = generate_event_id(
-                        group_name, week, day_number, lesson_number,
-                        cours_name, cours_type
-                    )
-                    
-                    # Check if event already exists
-                    event_exists = event_id in existing_events
-                    if event_exists and not overwrite:
-                        skipped += 1
-                        if debug:
-                            print(f"  Skipping existing event: {cours_name}")
-                        continue
-                    
-                    # Calculate datetime
-                    start_dt, end_dt = calc_lesson_datetime(week, day_number, lesson_number)
-                    
-                    # Create event title
-                    title = f"{cours_name} | {cours_type}" if cours_type else cours_name
-                    
-                    # Create description
-                    description_parts = [
-                        f"Lesson {lesson_number}",
-                        f"Type: {cours_type}" if cours_type else "",
-                        f"Office: {cours_office}" if cours_office else "Unknown",
-                        f"Teacher: {teacher}" if teacher else "",
-                    ]
-                    description = "\n".join([p for p in description_parts if p])
-                    
-                    # Location
-                    location = cours_office if cours_office else "Unknown"
-                    
-                    # Delete existing event if updating
-                    if event_exists and overwrite:
-                        try:
-                            existing_events[event_id].delete()
-                        except Exception as e:
-                            if debug:
-                                print(f"  Warning: Could not delete existing event: {e}")
-                    
-                    # Create or update event
-                    if self.create_or_update_event(
-                        event_id, title, start_dt, end_dt, description, location
-                    ):
-                        if event_exists:
-                            updated += 1
-                            if debug:
-                                print(f"  Updated: {title} on {start_dt.date()}")
-                        else:
-                            created += 1
-                            if debug:
-                                print(f"  Created: {title} on {start_dt.date()}")
-                        total_events += 1
-                    else:
-                        print(f"  Failed to create: {title}")
-                        
-            except Exception as e:
-                print(f"Error processing week {week}: {e}")
-                if debug:
-                    import traceback
-                    traceback.print_exc()
+                # Get dt_start and dt_end, then convert into a proper form
+                dt_start, dt_end = self._get_lesson_date_and_time(week, lesson_day, lesson_nr)
+                dt_start, dt_end = self._convert_to_ics_datetime(dt_start, dt_end)
+
+                # Generate a summary
+                summary = f"{lesson_name} | {lesson_type}"
+                _safe_summary = self._escape_ical_value(summary)
+                
+                # Generate a description
+                description_lines = [
+                    f"Lesson {lesson_nr}",
+                    f"Type: {lesson_type}",
+                    f"Office: {office if office else "Unknown"}",
+                    f"Teacher: {teacher}"
+                ]
+                _safe_description = self._escape_ical_value("\n".join(description_lines))
+
+                # Generate ics data
+                lesson_lines = [
+                    "BEGIN:VEVENT",
+                    f"UID:{lesson_id}@usarb-schedule.local",
+                    f"DTSTART:{dt_start}",
+                    f"DTEND:{dt_end}",
+                    f"SUMMARY:{_safe_summary}",
+                    f"DESCRIPTION:{_safe_description}",
+                    f"LOCATION:{office if office else "Unknown"}",
+                    f"OBJECT_ID:{lesson_id}.ics",
+                    f"END:VEVENT",
+                ]
+                
+                # Add event/lesson to the ics data
+                event_lines.extend(lesson_lines)
+
+                # Debug
+                if self.debug:
+                    print(f"\n\nDEBUG: ICS Event Lines: {event_lines}")
+            
+        # Add the end lines to the ics content
+        event_lines.extend(event_lines_end)
+
+        # Debug
+        if self.debug:
+            print(f"\n\nDEBUG: ICS Event Lines (end): {event_lines}")
         
-        print(f"\nSync complete!")
-        print(f"  Total events: {total_events}")
-        print(f"  Created: {created}")
-        print(f"  Updated: {updated}")
-        print(f"  Skipped: {skipped}")
+        # Get the properly formatted ics content
+        content = "\r\n".join(event_lines)
+
+        # Get the calendar and save the event/events
+        my_calendar = self.get_or_create_calendar()
+        saved_event = my_calendar.save_event(content.encode("utf-8"))
+
+        # Debug
+        if self.debug:
+            print(f"DEBUG: Saved event data: {saved_event}")
         
-        return True
+    # This function won't be used in the main process, but it's here for testing purposes
+    def fetch_events(self, my_calendar: caldav.Calendar | None = None) -> list[caldav.Event]:
+        """Fetching the events from the calendar
+        
+        Returns:
+            my_events: Your events
+        """
+        # Get the default my_calendar if None
+        if my_calendar is None:
+            my_calendar = self.get_or_create_calendar()
+            
+        # Get start and end date (for searching events)
+        start_date, end_date = self._get_date_from_this_week_on()
+
+        # Search for events
+        my_events = my_calendar.search(
+            event=True,
+            start=start_date,
+            end=end_date,
+            expand=True
+        )
+
+        # Debug
+        if self.debug:
+            print(f"\n\nDEBUG: my_events: {my_events}")
+
+        return my_events
 
 
-def main():
-    """Main function."""
-    # Get configuration from environment variables
-    caldav_url = os.getenv("CALDAV_URL", "https://caldav.icloud.com/")
-    username = os.getenv("ICLOUD_USERNAME")
-    password = os.getenv("ICLOUD_PASSWORD")
-    calendar_name = os.getenv("CALENDAR_NAME", "USARB Schedule")
-    group_name = os.getenv("GROUP_NAME", "IT11Z")
-    
-    # Check required credentials
-    if not username or not password:
-        print("Error: ICLOUD_USERNAME and ICLOUD_PASSWORD must be set in environment variables or .env file")
-        print("\nTo set up:")
-        print("1. Create a .env file in the project root")
-        print("2. Add the following:")
-        print("   CALDAV_URL=https://caldav.icloud.com/")
-        print("   ICLOUD_USERNAME=your.email@icloud.com")
-        print("   ICLOUD_PASSWORD=your-app-specific-password")
-        print("   CALENDAR_NAME=USARB Schedule")
-        print("   GROUP_NAME=IT11Z")
-        print("\nNote: For iCloud, use an app-specific password, not your regular password.")
-        print("      Generate one at: https://appleid.apple.com/")
-        sys.exit(1)
-    
-    # Initialize calendar sync
-    sync = CalendarSync(caldav_url, username, password, calendar_name)
-    
-    # Parse command line arguments
-    import argparse
-    parser = argparse.ArgumentParser(description="Sync university schedule to iCloud Calendar")
-    parser.add_argument("--group", type=str, default=group_name, help="Group name (e.g., IT11Z)")
-    parser.add_argument("--weeks", type=str, help="Comma-separated list of weeks (e.g., 1,2,3)")
-    parser.add_argument("--start-week", type=int, help="Start week (inclusive)")
-    parser.add_argument("--end-week", type=int, help="End week (inclusive)")
-    parser.add_argument("--no-overwrite", action="store_true", help="Don't update existing events")
-    parser.add_argument("--debug", action="store_true", help="Enable debug output")
-    
-    args = parser.parse_args()
-    
-    # Parse weeks
-    weeks = None
-    if args.weeks:
-        weeks = [int(w.strip()) for w in args.weeks.split(",")]
-    
-    # Sync
-    sync.sync_lessons(
-        group_name=args.group,
-        weeks=weeks,
-        start_week=args.start_week,
-        end_week=args.end_week,
-        overwrite=not args.no_overwrite,
-        debug=args.debug,
-    )
-
-
+# Local testing
 if __name__ == "__main__":
-    main()
+    app = CalendarSchedule()
+    app.debug = True
 
+    # app.get_date_from_this_week_on(mode="dates")
+    # app.get_or_create_calendar()
+    # my_events = app.fetch_events()
+    # print(my_events[0].data)
+    
+    # my_calendar = app.get_or_create_calendar()
+    # print(my_calendar)
+
+    # my_principal = app.connect()
+    # print(my_principal)
+    
+    # print(datetime.now(timezone.utc))
+    
+    # app.parse_data_and_save_to_calendar()
+    
+    # print(app._get_lesson_date_and_time(10, 1, 2))
+
+    app.parse_schedule_data()

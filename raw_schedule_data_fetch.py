@@ -20,7 +20,7 @@ def get_csrf():
 
 
 # Get the schedule
-def get_raw_schedule_json(your_group_name: str, semester: int = 1, university_week: int = 1, debug: bool = False):
+def get_raw_schedule_data(your_group_name: str, semester: int = 1, university_week: int = 1, debug: bool = False):
     # Get CSRF token
     csrf = get_csrf()
 
@@ -39,7 +39,7 @@ def get_raw_schedule_json(your_group_name: str, semester: int = 1, university_we
     
     # Get lessons data
     try:
-        r_lessons = _get_lessons_json(data, debug=debug)
+        r_lessons = _get_lessons_data(data, debug=debug)
         return r_lessons
     except Exception as e:
         # Raise error
@@ -74,7 +74,7 @@ def _get_groups_by_name(group_name: str, csrf: str, debug: bool = False):
 
 
 # Get the user's lessons
-def _get_lessons_json(data: dict, debug: bool = False):
+def _get_lessons_data(data: dict, debug: bool = False):
     # Get URL
     url_lessons = f"{url_main}/api/getlessons"
 
@@ -92,4 +92,4 @@ def _get_lessons_json(data: dict, debug: bool = False):
 
 # Local test
 if __name__ == "__main__":
-    get_raw_schedule_json("IT11Z", debug=True)
+    get_raw_schedule_data("IT11Z", university_week=11, debug=True)

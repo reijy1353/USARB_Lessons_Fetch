@@ -1,304 +1,246 @@
-# USARB Schedule Automation
+# 📅 USARB Schedule Automation
 
-Python script that scrapes the CSRF token and session data from https://orar.usarb.md/, then queries the internal API to fetch the weekly schedule and syncs it directly to your iCloud Calendar using CalDAV.
+> Automatically sync your university schedule from [orar.usarb.md](https://orar.usarb.md/) directly to your iCloud Calendar using CalDAV.
 
-## Features
+[![Python](https://img.shields.io/badge/Python-3.x-blue.svg)](https://www.python.org/)
+[![License](https://img.shields.io/badge/License-Personal%20Use-lightgrey.svg)]()
 
-- ✅ Fetches schedule data from USARB website
-- ✅ Syncs lessons directly to iCloud Calendar (no .ics file needed)
-- ✅ Unique event IDs prevent duplicates
-- ✅ Automatic event updates when schedule changes
-- ✅ Supports syncing specific weeks or date ranges
-- ✅ Safe overwriting of existing events
-- ✅ **Telegram bot** for automatic monitoring and notifications
-- ✅ **Change detection** - automatically detects schedule changes
+---
 
-## Prerequisites
+## ✨ Features
 
-1. **Python 3.7+** installed
-2. **iCloud account** with Two-Factor Authentication enabled
-3. **App-specific password** for iCloud (see setup below)
-4. **Telegram bot token** (for automatic monitoring - optional)
+- 🔄 **Automatic Schedule Sync** - Fetches your weekly schedule from the USARB portal
+- 📱 **iCloud Calendar Integration** - Directly syncs events to your iCloud Calendar via CalDAV
+- 🎯 **Smart Event Management** - Automatically creates or updates calendar events with lesson details
+- 📊 **Multi-Week Support** - Sync multiple weeks ahead (default: current week + 3 weeks)
+- 🔍 **Detailed Event Information** - Includes lesson name, type, location, teacher, and time
+- 💾 **Snapshot Support** - Save and load schedule snapshots for offline access
+- 🛡️ **CSRF Protection** - Handles CSRF tokens and session management automatically
 
-## Installation
+---
+
+## 🚀 Quick Start
+
+### Prerequisites
+
+- Python 3.x
+- iCloud account with CalDAV access enabled
+- USARB student account (access to orar.usarb.md)
+
+### Installation
 
 1. **Clone or download this repository**
 
-2. **Install dependencies:**
-   ```bash
-   pip install -r requirements.txt
-   ```
+```bash
+git clone <repository-url>
+cd usarb_schedule_fetch
+```
 
-## Setup
+2. **Install dependencies**
 
-### Step 1: Enable Two-Factor Authentication
+```bash
+pip install -r requirements.txt
+```
 
-If you haven't already enabled 2FA on your Apple ID:
-- On your iPhone/iPad: Go to **Settings** > **[Your Name]** > **Password & Security** > **Two-Factor Authentication**
-- Enable it if not already enabled
+3. **Set up environment variables**
 
-### Step 2: Generate an App-Specific Password
-
-**⚠️ Important:** You cannot use your regular iCloud password. You MUST use an app-specific password.
-
-1. Go to [Apple ID Account Page](https://appleid.apple.com/)
-2. Sign in with your Apple ID
-3. In the **Sign-In and Security** section, find **App-Specific Passwords**
-4. Click **Generate an app-specific password**
-5. Enter a label (e.g., "USARB Schedule Sync")
-6. Click **Create**
-7. **Copy the 16-character password immediately** (you won't be able to see it again!)
-
-### Step 3: Create `.env` File
-
-Create a `.env` file in the project root directory with the following content:
+Create a `.env` file in the project root with the following variables:
 
 ```env
 # iCloud CalDAV Configuration
-CALDAV_URL=https://caldav.icloud.com/
-
-# Your iCloud email address (e.g., yourname@icloud.com)
-ICLOUD_USERNAME=your.email@icloud.com
-
-# The app-specific password you generated (NOT your regular password!)
-ICLOUD_PASSWORD=abcd-efgh-ijkl-mnop
-
-# Calendar name (will be created if doesn't exist)
+CALDAV_URL=https://caldav.icloud.com
+ICLOUD_USERNAME=your_apple_id@icloud.com
+ICLOUD_PASSWORD=your_app-specific_password
 CALENDAR_NAME=USARB Schedule
 
-# Your group name (e.g., IT11Z, IT12Z, etc.)
+# University Configuration
 GROUP_NAME=IT11Z
-
-# Telegram Bot Configuration (optional, for automatic monitoring)
-TELEGRAM_BOT_TOKEN=your_bot_token_here
-TELEGRAM_CHAT_ID=your_chat_id_here
-
-# Auto-monitoring settings
-MONITOR_WEEKS=2  # Monitor current week + next N weeks (default: 2)
-CHECK_INTERVAL_MINUTES=60  # How often to check for changes (default: 60)
-AUTO_SYNC=false  # Set to true to automatically sync when changes detected
 ```
 
-**Replace the values:**
-- `ICLOUD_USERNAME`: Your iCloud email address
-- `ICLOUD_PASSWORD`: The app-specific password you generated (format: `xxxx-xxxx-xxxx-xxxx`)
-- `CALENDAR_NAME`: Name for the calendar (optional, defaults to "USARB Schedule")
-- `GROUP_NAME`: Your group name from the schedule
+> **Note:** For iCloud, you'll need to generate an [App-Specific Password](https://support.apple.com/en-us/102654) instead of your regular Apple ID password.
 
-### Step 4: Verify Your iCloud Email
+---
 
-Make sure you're using the correct iCloud email format:
-- `yourname@icloud.com` ✅
-- `yourname@me.com` ✅
-- `yourname@mac.com` ✅
-
-## Usage
+## 📖 Usage
 
 ### Basic Usage
 
-Sync current week and next 4 weeks (default):
+Run the main script to sync your schedule:
+
 ```bash
 python main.py
 ```
 
-### Sync Specific Weeks
+This will:
+1. Fetch your schedule for the current week and the next 2 weeks
+2. Create or update events in your specified iCloud Calendar
+3. Automatically handle lesson times, locations, and teacher information
 
-```bash
-# Sync specific weeks
-python main.py --weeks 1,2,3,4,5
+### Advanced Usage
 
-# Sync a range of weeks
-python main.py --start-week 1 --end-week 10
+#### Custom Week Range
+
+You can modify the code to sync specific weeks:
+
+```python
+from main import CalendarSchedule
+
+app = CalendarSchedule()
+# Sync weeks 10, 11, and 12
+app.parse_schedule_data(weeks=[10, 11, 12])
 ```
 
-### Use Different Group
+#### Save Schedule Snapshot
 
-```bash
-python main.py --group IT12Z
+Save your schedule to a JSON file for offline access:
+
+```python
+from data_parser import save_schedule_to_json
+
+# Save weeks 10, 11, 12 to schedule_snapshot.json
+save_schedule_to_json("IT11Z", 10, 11, 12)
 ```
+
+#### Load Schedule from Snapshot
+
+```python
+from main import CalendarSchedule
+
+app = CalendarSchedule()
+schedule_data = app.get_data_from_snapshot("schedule_snapshot.json")
+```
+
+---
+
+## 📁 Project Structure
+
+```
+usarb_schedule_fetch/
+├── main.py                      # Main calendar sync logic
+├── raw_schedule_data_fetch.py   # Web scraping and API calls
+├── data_parser.py               # Schedule parsing and snapshot utilities
+├── requirements.txt             # Python dependencies
+├── .env                         # Environment variables (create this)
+├── schedule_snapshot.json       # Optional: saved schedule snapshot
+└── readme.md                    # This file
+```
+
+### Key Components
+
+- **`CalendarSchedule`** (`main.py`) - Main class handling calendar operations
+  - Connects to iCloud via CalDAV
+  - Parses schedule data into iCal format
+  - Manages calendar events
+
+- **`get_raw_schedule_data()`** (`raw_schedule_data_fetch.py`) - Fetches schedule from USARB API
+  - Handles CSRF token extraction
+  - Manages session cookies
+  - Queries the internal API
+
+- **`data_parser.py`** - Utility functions for schedule manipulation
+  - Generates unique lesson IDs
+  - Creates schedule snapshots
+  - Organizes schedule data by week and day
+
+---
+
+## ⚙️ Configuration
+
+### Environment Variables
+
+| Variable | Description | Example |
+|----------|-------------|---------|
+| `CALDAV_URL` | Your CalDAV server URL | `https://caldav.icloud.com` |
+| `ICLOUD_USERNAME` | Your Apple ID email | `user@icloud.com` |
+| `ICLOUD_PASSWORD` | App-specific password | `xxxx-xxxx-xxxx-xxxx` |
+| `CALENDAR_NAME` | Name of the calendar to use/create | `USARB Schedule` |
+| `GROUP_NAME` | Your university group name | `IT11Z` |
+
+### Calendar Settings
+
+The script automatically:
+- Creates a new calendar if one with the specified name doesn't exist
+- Uses UTC timezone for all events
+- Sets lesson duration to 1 hour 30 minutes
+- Calculates lesson times based on the first lesson starting at 8:00 AM
+
+### Week Calculation
+
+Weeks are calculated from September 1, 2025 (Week 1). The script automatically determines the current week based on today's date.
+
+---
+
+## 🔧 Troubleshooting
+
+### Common Issues
+
+**Problem:** `ConnectionError` or authentication failures
+- **Solution:** Verify your CalDAV URL and ensure you're using an App-Specific Password for iCloud
+
+**Problem:** `NotFoundError` for group name
+- **Solution:** Check that your `GROUP_NAME` matches exactly as it appears on the USARB portal
+
+**Problem:** Events not appearing in calendar
+- **Solution:** 
+  - Check that the calendar name in `.env` matches your iCloud calendar
+  - Verify CalDAV is enabled for your iCloud account
+  - Check script output for error messages
+
+**Problem:** CSRF token errors
+- **Solution:** The script handles this automatically, but if issues persist, ensure you have internet connectivity and the USARB portal is accessible
 
 ### Debug Mode
 
-See detailed output of what's happening:
-```bash
-python main.py --debug
+Enable debug mode to see detailed output:
+
+```python
+app = CalendarSchedule()
+app.debug = True
+app.parse_schedule_data()
 ```
 
-### Don't Overwrite Existing Events
+---
 
-Skip events that already exist in calendar:
-```bash
-python main.py --no-overwrite
-```
+## 📋 Dependencies
 
-### Command-Line Arguments
+Key dependencies include:
+- `caldav` - CalDAV client for calendar operations
+- `requests` - HTTP requests for web scraping
+- `beautifulsoup4` - HTML parsing for CSRF token extraction
+- `python-dotenv` - Environment variable management
+- `icalendar` - iCal format handling
 
-```
---group GROUP_NAME      Group name (e.g., IT11Z) [default: from .env]
---weeks WEEKS           Comma-separated list of weeks (e.g., 1,2,3)
---start-week WEEK       Start week (inclusive)
---end-week WEEK         End week (inclusive)
---no-overwrite          Don't update existing events
---debug                 Enable debug output
-```
+See `requirements.txt` for the complete list.
 
-## How It Works
+---
 
-1. **Fetches Schedule**: Connects to https://orar.usarb.md/ and fetches schedule data for your group
-2. **Generates Event IDs**: Creates unique 32-character hex IDs for each lesson based on:
-   - Group name
-   - Week number
-   - Day of week
-   - Lesson number
-   - Course name
-   - Course type
-3. **Syncs to Calendar**: 
-   - Connects to iCloud via CalDAV
-   - Creates calendar if it doesn't exist
-   - Creates new events or updates existing ones (based on event ID)
-   - Prevents duplicates
+## 🔐 Security Notes
 
-## Troubleshooting
+- Never commit your `.env` file to version control
+- Use App-Specific Passwords for iCloud (not your main Apple ID password)
+- Keep your credentials secure and private
 
-### "Could not resolve CalDAV server"
+---
 
-- Check that `CALDAV_URL` is correct: `https://caldav.icloud.com/`
-- Make sure you have internet connection
-- Try accessing https://caldav.icloud.com/ in a browser (should show authentication prompt)
+## 📝 License
 
-### "Authentication failed" or "Invalid credentials"
+This project is for personal use only.
 
-- **Most common issue:** You're using your regular iCloud password instead of an app-specific password
-- Make sure you generated a new app-specific password
-- Verify the password format is correct (16 characters: `xxxx-xxxx-xxxx-xxxx`)
-- Check that your iCloud email is correct
-- Ensure 2FA is enabled on your Apple ID
+---
 
-### "Calendar not found" or "Permission denied"
+## 🤝 Contributing
 
-- The script will create the calendar automatically if it doesn't exist
-- Check that your app-specific password has calendar permissions
-- Make sure you're using the correct iCloud account
+This is a personal project, but suggestions and improvements are welcome!
 
-### Events not appearing in calendar
+---
 
-- Check that the calendar was created (look for "USARB Schedule" in your calendars)
-- Make sure you're viewing the correct calendar in Apple Calendar
-- Run with `--debug` to see what's happening
-- Check that the week numbers are correct (schedule starts at week 1)
+## 📞 Support
 
-### "Import caldav could not be resolved"
+For issues or questions:
+1. Check the [Troubleshooting](#-troubleshooting) section
+2. Review the code comments for implementation details
+3. Enable debug mode to see detailed execution logs
 
-- Install dependencies: `pip install -r requirements.txt`
-- Make sure you're in the correct virtual environment (if using one)
+---
 
-## Security Notes
-
-- **Never commit `.env` file to git** (it's already in `.gitignore`)
-- **Never share your app-specific password**
-- **Revoke app-specific passwords** if you suspect they're compromised
-- The app-specific password can be revoked at any time from [Apple ID account page](https://appleid.apple.com/)
-
-## Telegram Bot for Automatic Monitoring
-
-The Telegram bot automatically monitors your schedule for changes and can sync your calendar when updates are detected.
-
-### Setup Telegram Bot
-
-1. **Create a Telegram Bot:**
-   - Open Telegram and search for [@BotFather](https://t.me/botfather)
-   - Send `/newbot` and follow the instructions
-   - Copy the bot token you receive
-
-2. **Get Your Chat ID:**
-   - Start a conversation with your bot
-   - Send any message to your bot
-   - Visit: `https://api.telegram.org/bot<YOUR_BOT_TOKEN>/getUpdates`
-   - Look for `"chat":{"id":123456789}` - that's your chat ID
-
-3. **Add to `.env` file:**
-   ```env
-   TELEGRAM_BOT_TOKEN=123456789:ABCdefGHIjklMNOpqrsTUVwxyz
-   TELEGRAM_CHAT_ID=123456789
-   MONITOR_WEEKS=2
-   CHECK_INTERVAL_MINUTES=60
-   AUTO_SYNC=false
-   ```
-
-4. **Run the bot:**
-   ```bash
-   python telegram_bot.py
-   ```
-
-### Bot Commands
-
-- `/start` - Start the bot and see welcome message
-- `/status` - Check current status and monitored weeks
-- `/check` - Manually check for schedule changes
-- `/sync` - Manually sync schedule to calendar
-- `/help` - Show help message
-
-### How It Works
-
-1. **Automatic Monitoring:**
-   - Bot checks for schedule changes every hour (configurable)
-   - Compares current schedule with saved snapshot
-   - Detects added, removed, or modified lessons
-
-2. **Change Detection:**
-   - When changes are detected, you'll receive a notification
-   - Shows what changed (added/removed/modified lessons)
-   - Option to manually sync or auto-sync if enabled
-
-3. **Auto-Sync (Optional):**
-   - Set `AUTO_SYNC=true` in `.env`
-   - Bot will automatically sync calendar when changes detected
-   - You'll still receive notifications about what changed
-
-### Running in Background
-
-**On macOS/Linux:**
-```bash
-# Run in background
-nohup python telegram_bot.py > bot.log 2>&1 &
-
-# Or use screen/tmux
-screen -S schedule_bot
-python telegram_bot.py
-# Press Ctrl+A then D to detach
-```
-
-**On Windows:**
-- Use Task Scheduler or run as a service
-- Or use a tool like NSSM (Non-Sucking Service Manager)
-
-## Example Workflow
-
-```bash
-# 1. First time setup - sync all weeks for semester
-python main.py --start-week 1 --end-week 20 --debug
-
-# 2. Regular updates - sync current and next weeks
-python main.py
-
-# 3. Check specific weeks
-python main.py --weeks 5,6,7 --debug
-
-# 4. Start automatic monitoring (in separate terminal)
-python telegram_bot.py
-```
-
-## Files
-
-- `main.py` - Main script for calendar sync
-- `telegram_bot.py` - Telegram bot for automatic monitoring
-- `schedule_monitor.py` - Schedule change detection module
-- `data_parser.py` - Parses schedule data and calculates dates
-- `raw_schedule_data_fetch.py` - Fetches raw schedule from website
-- `.env` - Your credentials (not in git)
-- `schedule_snapshot.json` - Saved schedule snapshot (auto-generated)
-- `requirements.txt` - Python dependencies
-
-## License
-
-This project is for personal use.
+**Made with ❤️ for USARB students**

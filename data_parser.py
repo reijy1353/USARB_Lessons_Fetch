@@ -1,165 +1,139 @@
-from datetime import datetime, date, timedelta
-from typing import Dict, List, Optional, Tuple
 import hashlib
-from raw_schedule_data_fetch import get_raw_schedule_json
+import json
+from collections import defaultdict
+from typing import Any
 
+from raw_schedule_data_fetch import get_raw_schedule_data
 
-# First week date
-WEEK_ZERO_START = date(2025, 9, 1)
+def get_lesson_id(lesson_day: int, lesson_nr: int, lesson_name: str, lesson_type: str, office: int, teacher: str, debug: bool = False):
+    f"""Returning a 32 character hash created using MD5 and a string from the given args
 
+    Args:
+        lesson_day (int): lesson day
+        lesson_nr (int): lessons number
+        lesson_name (str): lesson name
+        lesson_type (str): lesson type
+        office (int): office
+        teacher (str): teacher
+        debug (bool, optional): debug. Defaults to False.
 
-# Parsing the date
-def _parse_date_str(date_str: str) -> date:
-    return datetime.strptime(date_str, "%d.%m.%Y").date()
-
-
-# Calculating the week properly
-def calc_university_week_from_date(target_date: date) -> int:
-    delta_days = (target_date - WEEK_ZERO_START).days
-    week_index = (delta_days // 7) + 1
-    return max(1, week_index)
-
-
-# Mapping weekday names
-def _weekday_name(day_number: int) -> str:
-    mapping = {
-        1: "Monday",
-        2: "Tuesday",
-        3: "Wednesday",
-        4: "Thursday",
-        5: "Friday",
-        6: "Saturday",
-        7: "Sunday",
-    }
-    return mapping.get(day_number, f"Day {day_number}")
-
-
-# Calculate lesson time window based on lesson number
-def _lesson_time_range(lesson_number: int) -> str:
-    # Start at 08:00
-    start_minutes_total = 8 * 60
-    # Each block is 90 min lesson + 15 min break between lessons => 105 min step
-    step = 105
-    # Compute start for this lesson (1-indexed)
-    lesson_start = start_minutes_total + (lesson_number - 1) * step
-    lesson_end = lesson_start + 90
-    sh, sm = divmod(lesson_start, 60)
-    eh, em = divmod(lesson_end, 60)
-    return f"{sh:02d}:{sm:02d} - {eh:02d}:{em:02d}"
-
-
-# Calculate actual date from week number and day number (1=Monday, 7=Sunday)
-def calc_date_from_week_and_day(week: int, day_number: int) -> date:
+    Returns:
+        string: [your_hash]@usarb-schedule.local
     """
-    Calculate the actual date for a given week and day of week.
-    day_number: 1=Monday, 2=Tuesday, ..., 7=Sunday
-    """
-    # Calculate days from WEEK_ZERO_START
-    # week 1 starts at WEEK_ZERO_START (Monday)
-    days_from_start = (week - 1) * 7 + (day_number - 1)
-    return WEEK_ZERO_START + timedelta(days=days_from_start)
-
-
-# Calculate lesson start and end datetime
-def calc_lesson_datetime(week: int, day_number: int, lesson_number: int) -> Tuple[datetime, datetime]:
-    """
-    Calculate the start and end datetime for a lesson.
-    Returns (start_datetime, end_datetime)
-    """
-    # Calculate the date
-    lesson_date = calc_date_from_week_and_day(week, day_number)
+    # Get string for hash transform and transform it using MD5
+    to_hash = f"{lesson_day}{lesson_nr}{lesson_name}{lesson_type}{office}{teacher}"
+    hash = hashlib.md5(to_hash.encode()).hexdigest()[:32]
     
-    # Calculate start time (08:00 + (lesson_number - 1) * 105 minutes)
-    start_minutes_total = 8 * 60 + (lesson_number - 1) * 105
-    start_hour, start_minute = divmod(start_minutes_total, 60)
-    
-    # End time is 90 minutes after start
-    end_minutes_total = start_minutes_total + 90
-    end_hour, end_minute = divmod(end_minutes_total, 60)
-    
-    start_dt = datetime.combine(lesson_date, datetime.min.time().replace(hour=start_hour, minute=start_minute))
-    end_dt = datetime.combine(lesson_date, datetime.min.time().replace(hour=end_hour, minute=end_minute))
-    
-    return start_dt, end_dt
-
-
-# Generate unique event ID for a lesson
-def generate_event_id(group_name: str, week: int, day_number: int, lesson_number: int, 
-                      cours_name: str = "", cours_type: str = "") -> str:
-    """
-    Generate a unique 32-character hex ID for a calendar event.
-    Uses a hash of the lesson's identifying information.
-    """
-    # Create a unique string from lesson identifiers
-    unique_string = f"{group_name}:{week}:{day_number}:{lesson_number}:{cours_name}:{cours_type}"
-    
-    # Generate SHA-256 hash and take first 32 characters (16 bytes = 32 hex chars)
-    hash_obj = hashlib.sha256(unique_string.encode('utf-8'))
-    return hash_obj.hexdigest()[:32]
-
-
-# Formatting schedule by specific criteria
-# The default formatting would be like: Lesson 1 | Matematica | Prelegere | Cabinet (int) | Profesor
-def format_schedule(grouped: Dict[int, List[dict]]) -> str:
-    lines: List[str] = []
-    lines.append("Day of the week:")
-    for day_number in sorted(grouped.keys()):
-        day_lessons = sorted(grouped[day_number], key=lambda l: (l.get("cours_nr") or 0))
-        lines.append("")
-        lines.append(f"{_weekday_name(day_number)}:")
-        for lesson in day_lessons:
-            nr = lesson.get("cours_nr")
-            name = lesson.get("cours_name") or ""
-            ctype = lesson.get("cours_type") or ""
-            office = lesson.get("cours_office") or ""
-            teacher = lesson.get("teacher_name") or ""
-            lines.append(f"Lesson {nr} | {name} | {ctype} | {office if office else "Unknown"} | {teacher}")
-    return "\n".join(lines)
-
-
-# Main function
-def parse_raw_schedule_json(
-    group_name: str,
-    week: Optional[int] = None,
-    date_str: Optional[str] = None,
-    debug: bool = False,
-) -> str:
-    if date_str:
-        target = _parse_date_str(date_str)
-        week = calc_university_week_from_date(target)
-    if week is None:
-        week = 1
-
-    raw = get_raw_schedule_json(group_name, university_week=week, debug=debug)
-
-    entries = raw.get("week") or []
-    grouped: Dict[int, List[dict]] = {}
-    for item in entries:
-        day_num = item.get("day_number") or 0
-        if day_num not in grouped:
-            grouped[day_num] = []
-        grouped[day_num].append(item)
-
-    output = format_schedule(grouped)
+    # Debug
     if debug:
-        pass
-        # print(output)
-    return output
+        print(f"DEBUG: {hash}")
+    
+    return hash
 
+def get_schedule_for_snapshot(group_name: str, *weeks: int, debug: bool = False):
+    """All the specifications/keywords we need:
+        cours_nr -> lesson number (1 - 8)
+        cours_name -> name of the course/class (e.g. Math)
+        cours_office -> locatin (e.g. 224)
+        teacher_name -> name of the teacher (e.g. Cernolev C.)
+        cours_type -> type of any course (e.g. Prelegere, Seminar etc.)
+        day_number -> the day when it happends (1-7, we'll be needing/using just 1-6, don't think you want to study on Sundays)
+        week -> number of the week (relatively from 01.09.2025, which was week 1)
 
-# Local test
+    Args:
+        group_name (str): name of your group (the group you're in)
+        debug (bool, optional): debug. Defaults to False.
+
+    Returns:
+        schedule: Your class schedule
+    """
+
+    # If a single argument is a list or tuple, unpack it
+    if len(weeks) == 1 and isinstance(weeks[0], (list, tuple)):
+        weeks = weeks[0]
+    
+    # Create a dict for saving schedule
+    schedule = defaultdict[Any, defaultdict[Any, dict]](lambda: defaultdict[Any, dict](dict))
+    
+    for week in weeks:
+        # Get the raw schedule
+        raw_schedule = get_raw_schedule_data(group_name, university_week=week)
+
+        # Create a dict that will save every lesson by thei day (1-7, monday-sunday)
+        lessons_by_day = {
+            1: [],
+            2: [],
+            3: [],
+            4: [],
+            5: [],
+            6: [],
+            7: [],
+        }
+        
+        # Save lessons to lessons_by_day dict
+        for i in raw_schedule["week"]:
+            lessons_by_day[i["day_number"]].append(i)    
+            
+        # DEBUG
+        if debug:
+            print(f"\n\nDEBUG lessons_by_day: {lessons_by_day}")
+
+        # Loop for saving lessons to schedule (here we're getting all the lessons for a day)
+        for lessons in lessons_by_day.values():
+
+            # DEBUG
+            if debug:
+                print(f"\n\nDEBUG lessons: {lessons}")
+
+            # Getting the lessons one by one from lessons
+            for lesson in lessons:
+                lesson_day = lesson["day_number"]
+                lesson_nr = lesson["cours_nr"]
+                lesson_name = lesson["cours_name"]
+                lesson_type = lesson["cours_type"]
+                office = lesson["cours_office"]
+                teacher = lesson["teacher_name"]
+                
+                # Get the lesson hash
+                lesson_hash = get_lesson_id(lesson_day, lesson_nr, lesson_name, lesson_type, office, teacher)
+                
+                # Write everyting in the schedule dict
+                schedule[week][lesson_hash]["lesson_day"] = lesson_day
+                schedule[week][lesson_hash]["lesson_nr"] = lesson_nr
+                schedule[week][lesson_hash]["lesson_name"] = lesson_name
+                schedule[week][lesson_hash]["lesson_type"] = lesson_type
+                schedule[week][lesson_hash]["office"] = office
+                schedule[week][lesson_hash]["teacher"] = teacher
+                
+                # DEBUG
+                if debug:
+                    print(f"\n\nDEBUG schedule by lesson_hash: f{schedule[week][lesson_hash]}")
+
+    # DEBUG
+    if debug:
+        print(f"\n\nDEBUG schedule itself: {schedule}")
+
+    # Return the schedule
+    return schedule
+                    
+
+def save_schedule_to_json(group_name: str, *weeks: int, debug: bool = False):
+    """Saving the schedule retrieved from get_schedule() function to schedule_snapshot.json
+        (overwriting it it already exists)
+
+    Args:
+        group_name (str): your group name
+        debug (bool, optional): debug. Defaults to False.
+    """
+    
+    # Get schedule
+    schedule = get_schedule_for_snapshot(group_name, *weeks)
+
+    # Open a default file ("schedule_snapshot.json") and write the schedule
+    with open("schedule_snapshot.json", "w") as f:
+        json.dump(schedule, f, indent=4)
+        
+
+# Local testing
 if __name__ == "__main__":
-    try:
-        today_str = datetime.today().strftime("%d.%m.%Y")
-        prompt = (
-            f"Enter date (dd.mm.yyyy), type 'today' for {today_str}, or leave empty to use week=1: "
-        )
-        user_date = input(prompt).strip()
-    except EOFError:
-        user_date = ""
-    if user_date:
-        if user_date.lower() == "today":
-            user_date = today_str
-        print(parse_raw_schedule_json("IT11Z", date_str=user_date, debug=True))
-    else:
-        print(parse_raw_schedule_json("IT11Z", week=1, debug=True))
+    save_schedule_to_json("IT11Z", (10, 11, 12))
