@@ -156,6 +156,28 @@ class CalendarSchedule:
         else:
             raise ValueError("mode must be either 'dates' or 'weeks'")
             
+    def _get_lesson_date_and_time(self, week: int = 1, day: int = 1, lesson_nr: int = 1) -> datetime:
+        """Return start and end date & time of a specific lesson
+
+        Args:
+            week (int, optional): the week (1-20). Defaults to 1.
+            lesson_nr (int, optional): the lesson nr (1-8). Defaults to 1.
+
+        Returns:
+            datetime: the date and the time of a specific lesson
+        """
+
+        # Get the date of the lesson using week and day
+        dt = (FIRST_DAY + timedelta(days=7) * (week - 1)) + timedelta(days=day-1)
+        
+        # Get the time of the lesson using _get_lesson_time method
+        lt_start, lt_end = self._get_lesson_time(lesson_nr=lesson_nr)
+        
+        # Combine date with lessons start and end time
+        dt_start = datetime.combine(dt, lt_start)
+        dt_end = datetime.combine(dt, lt_end)
+
+        return dt_start, dt_end
 
     # Feature in later update
     # e.g. where we need to make a difference between two scheules
@@ -305,10 +327,47 @@ class CalendarSchedule:
             weeks = self._get_date_from_this_week_on(mode="weeks")
             print(weeks)
 
+        # Loop for parsing my_schedule week by week
         for week in weeks:
             my_schedule = get_raw_schedule_data(your_group_name=group_name, university_week=week)
             print(f"\n\nweek{week} = {my_schedule}")
 
+# Color
+# : 
+# "-32768"
+# Denumire
+# : 
+# "IT11Z"
+# Subgrupa
+# : 
+# "IT11Z"
+# Titlu
+# : 
+# "conf. univ., dr."
+# cours_name
+# : 
+# "Matematica I"
+# cours_nr
+# : 
+# 1
+# cours_office
+# : 
+# "533"
+# cours_type
+# : 
+# "Prelegeri"
+# day_number
+# : 
+# 1
+# teacher_name
+# : 
+# "Negara C."
+# usarb_color
+# : 
+# "-32768"
+# week
+# : 
+# 12
 
         
     # This function won't be used in the main process, but it's here for testing purposes
@@ -358,4 +417,6 @@ if __name__ == "__main__":
     
     # print(datetime.now(timezone.utc))
     
-    app.parse_data_and_save_to_calendar()
+    # app.parse_data_and_save_to_calendar()
+    
+    app._get_lesson_date_and_time(10, 1, 2)

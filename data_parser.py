@@ -96,7 +96,7 @@ def get_schedule_for_snapshot(group_name: str, *weeks: int, debug: bool = False)
                 teacher = lesson["teacher_name"]
                 
                 # Get the lesson hash
-                lesson_hash = get_lesson_hash(lesson_day, lesson_nr, lesson_name, lesson_type, office, teacher)
+                lesson_hash = get_lesson_id(lesson_day, lesson_nr, lesson_name, lesson_type, office, teacher)
                 
                 # Write everyting in the schedule dict
                 schedule[week][lesson_hash]["lesson_day"] = lesson_day
