@@ -27,10 +27,9 @@ def get_lesson_id(lesson_day: int, lesson_nr: int, lesson_name: str, lesson_type
     # Debug
     if debug:
         print(f"DEBUG: {hash}")
-
-    return f"{hash}@usarb-schedule.local"
-
     
+    return hash
+
 def get_schedule_for_snapshot(group_name: str, *weeks: int, debug: bool = False):
     """All the specifications/keywords we need:
         cours_nr -> lesson number (1 - 8)
