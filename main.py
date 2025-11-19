@@ -1,7 +1,7 @@
 import os
 import json
 from re import S
-from typing import Any, Literal, overload
+from typing import Any, Literal, Tuple, overload
 from dotenv import load_dotenv
 from datetime import datetime, date, time, timedelta, timezone
 import caldav
@@ -156,7 +156,7 @@ class CalendarSchedule:
         else:
             raise ValueError("mode must be either 'dates' or 'weeks'")
             
-    def _get_lesson_date_and_time(self, week: int = 1, day: int = 1, lesson_nr: int = 1) -> datetime:
+    def _get_lesson_date_and_time(self, week: int = 1, day: int = 1, lesson_nr: int = 1) -> Tuple[datetime, datetime]:
         """Return start and end date & time of a specific lesson
 
         Args:
@@ -177,8 +177,34 @@ class CalendarSchedule:
         dt_start = datetime.combine(dt, lt_start)
         dt_end = datetime.combine(dt, lt_end)
 
+        # Convert to utc
+        dt_start = dt_start.astimezone(timezone.utc)
+        dt_end = dt_end.astimezone(timezone.utc)
+
         return dt_start, dt_end
 
+    def _stringify_ics_datetime(self, dt: datetime | None = None) -> str:
+        "Return a proper ics datetime string"
+        return dt.strftime("%Y%m%dT%H%M%SZ")
+
+    def _convert_to_ics_datetime(self, dt_start: datetime = None, dt_end: datetime = None) -> Tuple[str, str]:
+        "Returns dt start and end formated by .ics data requirements"
+        dt_start = self._stringify_ics_datetime(dt_start)
+        dt_end = self._stringify_ics_datetime(dt_end)
+        return dt_start, dt_end
+
+    def _escape_ical_value(self, value: str) -> str:
+        """Escape special characters in iCal values."""
+        # Replace newlines with \n
+        value = value.replace('\r\n', '\\n').replace('\n', '\\n').replace('\r', '\\n')
+        # Escape special characters
+        value = value.replace('\\', '\\\\')
+        value = value.replace(',', '\\,')
+        value = value.replace(';', '\\;')
+        # Replace newlines in multi-line values with proper formatting
+        value = value.replace('\n', '\\n')
+        return value
+    
     # Feature in later update
     # e.g. where we need to make a difference between two scheules
     def get_data_from_snapshot(self, snapshot_directory: str = "schedule_snapshot.json"):
@@ -196,18 +222,6 @@ class CalendarSchedule:
             print(f"\n\nDEBUG: data from json: {schedule_snapshot}")
         
         return schedule_snapshot
-    
-    def _escape_ical_value(self, value: str) -> str:
-        """Escape special characters in iCal values."""
-        # Replace newlines with \n
-        value = value.replace('\r\n', '\\n').replace('\n', '\\n').replace('\r', '\\n')
-        # Escape special characters
-        value = value.replace('\\', '\\\\')
-        value = value.replace(',', '\\,')
-        value = value.replace(';', '\\;')
-        # Replace newlines in multi-line values with proper formatting
-        value = value.replace('\n', '\\n')
-        return value
     
     def get_or_create_calendar(self) -> caldav.Calendar:
         """Get the calendar used for schedule, if none exists, it'll create a new one
@@ -227,85 +241,6 @@ class CalendarSchedule:
             print(f"But we'll create one just for you.")
             my_calendar = my_principal.make_calendar(name=self.calendar_name)
             
-        ## TEST: create/save an event
-
-        # Method 1: using .save_event() function
-        # november_18 = my_calendar.save_event(
-        #     dtstart=datetime(2025, 11, 18, 10),
-        #     dtend=datetime(2025, 11, 18, 11),
-        #     uid="november-18th",
-        #     summary="Here it is\nOr not?",
-        # )
-
-        # Method 2: using .save_even() fucntion with icalendar code
-        hash_example = "somethingimpossible@usarb.local"
-        description = [
-            "one_line",
-            "two_line",
-            "last_line",
-        ]
-        
-        description = self._escape_ical_value("\n".join(description))
-        # event_code = 
-            
-        november_18_lines = [
-            "BEGIN:VCALENDAR",
-            "VERSION:2.0",
-            "PROID:-//USARB Schedule//EN",
-            "BEGIN:VEVENT",
-            f"UID:{hash_example}",
-            f"DTSTART:20251118T060000Z",
-            f"DTEND:20251118T080000Z",
-            f"SUMMARY:Do the needfulness",
-            f"DESCRIPTION:{description}",
-            f"END:VEVENT",
-            "BEGIN:VEVENT",
-            f"UID:{hash_example}1",
-            f"DTSTART:20251118T080000Z",
-            f"DTEND:20251118T100000Z",
-            f"SUMMARY:Do theă needfulness",
-            f"DESCRIPTION:{description}",
-            f"END:VEVENT",
-            "BEGIN:VEVENT",
-            f"UID:{hash_example}1111",
-            f"DTSTART:20251118T060000Z",
-            f"DTEND:20251118T080000Z",
-            f"SUMMARY:Do the needfulness",
-            f"DESCRIPTION:{description}",
-            f"END:VEVENT",
-            "BEGIN:VEVENT",
-            f"UID:{hash_example}111",
-            f"DTSTART:20251118T060000Z",
-            f"DTEND:20251118T080000Z",
-            f"SUMMARY:Do the needfulness",
-            f"DESCRIPTION:{description}",
-            f"END:VEVENT",
-            "BEGIN:VEVENT",
-            f"UID:{hash_example}11",
-            f"DTSTART:20251118T060000Z",
-            f"DTEND:20251118T080000Z",
-            f"SUMMARY:Do the needfulness",
-            f"DESCRIPTION:{description}",
-            f"END:VEVENT",
-            f"END:VCALENDAR",
-            "",
-        ]
-        
-        content = "\r\n".join(november_18_lines)
-            
-        november_18 = my_calendar.save_event(
-            content.encode("utf-8"),
-            object_id=f"raw-hash.ics"
-        )
-
-        # ! BRAINSTORMING
-        # I need a function for saving event in which we'll be including the data parser
-        # and the save_event function itself
-        # save_even will have the part of saving in the real calendar
-        # and the part where we're putting all the ics code together
-        
-        
-
         # Debug
         if self.debug:
             print(f"\n\nDEBUG: type {type(my_calendar)}")
@@ -313,62 +248,112 @@ class CalendarSchedule:
     
         return my_calendar
 
-    def parse_data_and_save_to_calendar(self, group_name: str = None, weeks: list[int] = None):
+    def parse_schedule_data(self, group_name: str = None, weeks: list[int] = None):
         """Pasing the data from get_schedule(), adding it up to a ics data set and
         add to the calendar itself.
         """
-
+        
         # If no group_name provided, get it from .env
         if group_name is None:
             group_name = self.group_name
 
         # If no weeks provided, get this week and the next 2
         if weeks is None:
-            weeks = self._get_date_from_this_week_on(mode="weeks")
-            print(weeks)
+            weeks = self._get_date_from_this_week_on(postpone=3, mode="weeks",)
 
+            # Debug
+            if self.debug:
+                print(f"\n\nDEBUG: The weeks by default are: {weeks}")
+
+        # If we get just one week and it's int transform it into an itreable object
+        if isinstance(weeks, int):
+            weeks = [weeks]
+        
+        # Define .ics code for the schedule calendar
+        event_lines = [
+            "BEGIN:VCALENDAR",
+            "VERSION:2.0",
+            "PROID:-//USARB Schedule//EN",
+        ]
+        
+        # The end lines for ics content
+        event_lines_end = [
+            f"END:VCALENDAR",
+            "", 
+        ]
+        
         # Loop for parsing my_schedule week by week
         for week in weeks:
             my_schedule = get_raw_schedule_data(your_group_name=group_name, university_week=week)
-            print(f"\n\nweek{week} = {my_schedule}")
+            
+            # Loop for parsing every leeson from a university week
+            for lesson in my_schedule["week"]:
+                # Get the data needed from my_schedule dict
+                lesson_nr = lesson["cours_nr"]
+                lesson_name = lesson["cours_name"]
+                lesson_type = lesson["cours_type"]
+                lesson_day = lesson["day_number"]
+                office = lesson["cours_office"]
+                teacher = lesson["teacher_name"]
 
-# Color
-# : 
-# "-32768"
-# Denumire
-# : 
-# "IT11Z"
-# Subgrupa
-# : 
-# "IT11Z"
-# Titlu
-# : 
-# "conf. univ., dr."
-# cours_name
-# : 
-# "Matematica I"
-# cours_nr
-# : 
-# 1
-# cours_office
-# : 
-# "533"
-# cours_type
-# : 
-# "Prelegeri"
-# day_number
-# : 
-# 1
-# teacher_name
-# : 
-# "Negara C."
-# usarb_color
-# : 
-# "-32768"
-# week
-# : 
-# 12
+                # Get lesson's hash (UID)
+                lesson_id = get_lesson_id(lesson_day, lesson_nr, lesson_name, lesson_type,
+                                          office, teacher)
+                
+                # Get dt_start and dt_end, then convert into a proper form
+                dt_start, dt_end = self._get_lesson_date_and_time(week, lesson_day, lesson_nr)
+                dt_start, dt_end = self._convert_to_ics_datetime(dt_start, dt_end)
 
+                # Generate a summary
+                summary = f"{lesson_name} | {lesson_type}"
+                _safe_summary = self._escape_ical_value(summary)
+                
+                # Generate a description
+                description_lines = [
+                    f"Lesson {lesson_nr}",
+                    f"Type: {lesson_type}",
+                    f"Office: {office if office else "Unknown"}",
+                    f"Teacher: {teacher}"
+                ]
+                _safe_description = self._escape_ical_value("\n".join(description_lines))
+
+                # Generate ics data
+                lesson_lines = [
+                    "BEGIN:VEVENT",
+                    f"UID:{lesson_id}@usarb-schedule.local",
+                    f"DTSTART:{dt_start}",
+                    f"DTEND:{dt_end}",
+                    f"SUMMARY:{_safe_summary}",
+                    f"DESCRIPTION:{_safe_description}",
+                    f"LOCATION:{office if office else "Unknown"}",
+                    f"OBJECT_ID:{lesson_id}.ics",
+                    f"END:VEVENT",
+                ]
+                
+                # Add event/lesson to the ics data
+                event_lines.extend(lesson_lines)
+
+                # Debug
+                if self.debug:
+                    print(f"\n\nDEBUG: ICS Event Lines: {event_lines}")
+            
+        # Add the end lines to the ics content
+        event_lines.extend(event_lines_end)
+
+        # Debug
+        if self.debug:
+            print(f"\n\nDEBUG: ICS Event Lines (end): {event_lines}")
+        
+        # Get the properly formatted ics content
+        content = "\r\n".join(event_lines)
+
+        # Get the calendar and save the event/events
+        my_calendar = self.get_or_create_calendar()
+        saved_event = my_calendar.save_event(content.encode("utf-8"))
+
+        # Debug
+        if self.debug:
+            print(f"DEBUG: Saved event data: {saved_event}")
         
     # This function won't be used in the main process, but it's here for testing purposes
     def fetch_events(self, my_calendar: caldav.Calendar | None = None) -> list[caldav.Event]:
@@ -419,4 +404,6 @@ if __name__ == "__main__":
     
     # app.parse_data_and_save_to_calendar()
     
-    app._get_lesson_date_and_time(10, 1, 2)
+    # print(app._get_lesson_date_and_time(10, 1, 2))
+
+    app.parse_schedule_data()
