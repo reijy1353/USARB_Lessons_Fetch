@@ -325,7 +325,7 @@ class CalendarSchedule:
                     f"SUMMARY:{_safe_summary}",
                     f"DESCRIPTION:{_safe_description}",
                     f"LOCATION:{office if office else "Unknown"}",
-                    f"OBJECT_ID:{lesson_id}.ics",
+                    # f"OBJECT_ID:{lesson_id}.ics",
                     f"END:VEVENT",
                 ]
                 
@@ -334,7 +334,7 @@ class CalendarSchedule:
 
                 # Debug
                 if self.debug:
-                    print(f"\n\nDEBUG: ICS Event Lines: {event_lines}")
+                    print(f"\n\nDEBUG: ICS Lesson Lines: {lesson_lines}")
             
         # Add the end lines to the ics content
         event_lines.extend(event_lines_end)
