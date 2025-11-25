@@ -272,6 +272,13 @@ class CalendarSchedule:
         if isinstance(weeks, int):
             weeks = [weeks]
         
+        # Define .ics code for the schedule calendar and make sure to create it every week
+        event_lines = [
+            "BEGIN:VCALENDAR",
+            "VERSION:2.0",
+            "PROID:-//USARB Schedule//EN",
+        ]
+
         # The end lines for ics content
         event_lines_end = [
             f"END:VCALENDAR",
@@ -282,13 +289,6 @@ class CalendarSchedule:
         for week in weeks:
             # User info
             print(f"Working on week {week}")
-
-            # Define .ics code for the schedule calendar and make sure to create it every week
-            event_lines = [
-                "BEGIN:VCALENDAR",
-                "VERSION:2.0",
-                "PROID:-//USARB Schedule//EN",
-            ]
 
             my_schedule = get_raw_schedule_data(your_group_name=group_name, university_week=week)
             lessons = my_schedule.get("week") or []
@@ -342,23 +342,23 @@ class CalendarSchedule:
                 if self.debug:
                     print(f"\n\nDEBUG: ICS Lesson Lines: {lesson_lines}")
             
-            # Add the end lines to the ics content
-            event_lines.extend(event_lines_end)
+        # Add the end lines to the ics content
+        event_lines.extend(event_lines_end)
 
-            # Debug
-            if self.debug:
-                print(f"\n\nDEBUG: ICS Event Lines (end): {event_lines}")
-            
-            # Get the properly formatted ics content
-            content = "\r\n".join(event_lines)
+        # Debug
+        if self.debug:
+            print(f"\n\nDEBUG: ICS Event Lines (end): {event_lines}")
+        
+        # Get the properly formatted ics content
+        content = "\r\n".join(event_lines)
 
-            # Save the event
-            saved_event = my_calendar.save_event(content.encode("utf-8"), object_id=f"{lesson_id}.ics")
-            print("Event/Events succesfully created.")
+        # Save the event
+        saved_event = my_calendar.save_event(content.encode("utf-8"), object_id=f"{lesson_id}.ics")
+        print("Event/Events succesfully created.")
 
-            # Debug
-            if self.debug:
-                print(f"DEBUG: Saved event data: {saved_event}")
+        # Debug
+        if self.debug:
+            print(f"DEBUG: Saved event data: {saved_event}")
         
     # This function won't be used in the main process, but it's here for testing purposes
     def fetch_events(self, my_calendar: caldav.Calendar | None = None) -> list[caldav.Event]:
