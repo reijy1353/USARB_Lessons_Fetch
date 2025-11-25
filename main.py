@@ -236,9 +236,9 @@ class CalendarSchedule:
         try:
             my_calendar = my_principal.calendar(name=self.calendar_name)
         except NotFoundError:
-            print(f"You don't seem to have a calendar named {self.calendar_name}")
-            print(f"But we'll create one just for you.")
+            print(f"You don't have a calendar, creating one... (name = {self.calendar_name})")
             my_calendar = my_principal.make_calendar(name=self.calendar_name)
+            print("Calendar succefully created!")
             
         # Debug
         if self.debug:
@@ -247,11 +247,15 @@ class CalendarSchedule:
     
         return my_calendar
 
-    def parse_schedule_data(self, group_name: str = None, weeks: list[int] = None):
+    # TODO fix not saving glich, save each week individually...
+    def sync_schedule(self, group_name: str = None, weeks: list[int] = None):
         """Parsing the data from get_schedule(), adding it up to a ics data set and
         add to the calendar itself.
         """
         
+        # Get my_calendar
+        my_calendar = self.get_or_create_calendar()
+
         # If no group_name provided, get it from .env
         if group_name is None:
             group_name = self.group_name
@@ -268,13 +272,6 @@ class CalendarSchedule:
         if isinstance(weeks, int):
             weeks = [weeks]
         
-        # Define .ics code for the schedule calendar
-        event_lines = [
-            "BEGIN:VCALENDAR",
-            "VERSION:2.0",
-            "PROID:-//USARB Schedule//EN",
-        ]
-        
         # The end lines for ics content
         event_lines_end = [
             f"END:VCALENDAR",
@@ -283,10 +280,20 @@ class CalendarSchedule:
         
         # Loop for parsing my_schedule week by week
         for week in weeks:
+            # User info
+            print(f"Working on week {week}")
+
+            # Define .ics code for the schedule calendar and make sure to create it every week
+            event_lines = [
+                "BEGIN:VCALENDAR",
+                "VERSION:2.0",
+                "PROID:-//USARB Schedule//EN",
+            ]
+
             my_schedule = get_raw_schedule_data(your_group_name=group_name, university_week=week)
-            
+            lessons = my_schedule.get("week") or []
             # Loop for parsing every lesson from a university week
-            for lesson in my_schedule["week"]:
+            for lesson in lessons:
                 # Get the data needed from my_schedule dict
                 lesson_nr = lesson["cours_nr"]
                 lesson_name = lesson["cours_name"]
@@ -296,8 +303,7 @@ class CalendarSchedule:
                 teacher = lesson["teacher_name"]
 
                 # Get lesson's hash (UID)
-                lesson_id = get_lesson_id(lesson_day, lesson_nr, lesson_name, lesson_type,
-                                          office, teacher)
+                lesson_id = get_lesson_id(group_name, week, lesson_day, lesson_nr, lesson_name, lesson_type, teacher)
                 
                 # Get dt_start and dt_end, then convert into a proper form
                 dt_start, dt_end = self._get_lesson_date_and_time(week, lesson_day, lesson_nr)
@@ -336,23 +342,23 @@ class CalendarSchedule:
                 if self.debug:
                     print(f"\n\nDEBUG: ICS Lesson Lines: {lesson_lines}")
             
-        # Add the end lines to the ics content
-        event_lines.extend(event_lines_end)
+            # Add the end lines to the ics content
+            event_lines.extend(event_lines_end)
 
-        # Debug
-        if self.debug:
-            print(f"\n\nDEBUG: ICS Event Lines (end): {event_lines}")
-        
-        # Get the properly formatted ics content
-        content = "\r\n".join(event_lines)
+            # Debug
+            if self.debug:
+                print(f"\n\nDEBUG: ICS Event Lines (end): {event_lines}")
+            
+            # Get the properly formatted ics content
+            content = "\r\n".join(event_lines)
 
-        # Get the calendar and save the event/events
-        my_calendar = self.get_or_create_calendar()
-        saved_event = my_calendar.save_event(content.encode("utf-8"))
+            # Save the event
+            saved_event = my_calendar.save_event(content.encode("utf-8"), object_id=f"{lesson_id}.ics")
+            print("Event/Events succesfully created.")
 
-        # Debug
-        if self.debug:
-            print(f"DEBUG: Saved event data: {saved_event}")
+            # Debug
+            if self.debug:
+                print(f"DEBUG: Saved event data: {saved_event}")
         
     # This function won't be used in the main process, but it's here for testing purposes
     def fetch_events(self, my_calendar: caldav.Calendar | None = None) -> list[caldav.Event]:
@@ -386,7 +392,7 @@ class CalendarSchedule:
 # Local testing
 if __name__ == "__main__":
     app = CalendarSchedule()
-    app.debug = True
+    app.debug = False
 
     # app.get_date_from_this_week_on(mode="dates")
     # app.get_or_create_calendar()
@@ -405,4 +411,4 @@ if __name__ == "__main__":
     
     # print(app._get_lesson_date_and_time(10, 1, 2))
 
-    app.parse_schedule_data()
+    app.sync_schedule()
